@@ -337,39 +337,61 @@ async function extractText(blob,name){
   c2.getContext("2d").drawImage(img,0,0); return await ocrCanvas(c2);
 }
 function classifyDoc(text){
-  var t=(text||"").toLowerCase();
-  if(/tankstelle|diesel|super\s?e?10|super\s?95|benzin|liter|aral|shell|esso|\bjet\b|totalenerg/.test(t))return "Tankbeleg";
-  if(/restaurant|gastst|men[uü]|trinkgeld|speisen|bewirtung|caf[eé]|imbiss|pizzeria/.test(t))return "Restaurantbeleg";
-  if(/hotel|übernacht|zimmer\s?nr|logis/.test(t))return "Hotelbeleg";
-  if(/rechnung|invoice|ust-?id|umsatzsteuer|rechnungsnummer|leistungsdatum|steuernummer/.test(t))return "Rechnung";
+  var t=(text||"").toLowerCase().replace(/\s+/g," ");
+  if(/tankstelle|zapfs|kraftstoff|diesel|super\s?e?10|super\s?95|benzin|\bliter\b|adblue|\baral\b|\bshell\b|\besso\b|\bjet\b|\bomv\b|\bavia\b|\bagip\b|\bhem\b|\bbft\b|total\s?energ|totalenerg/.test(t))return "Tankbeleg";
+  if(/restaurant|gaststätt|gaststaett|gasthaus|gasthof|wirtshaus|brauhaus|men[uü]|trinkgeld|speise|bewirtung|caf[eé]|imbiss|pizz|döner|doener|kebab|sushi|trattoria|mcdonald|burger\s?king|getränk|tisch\s?nr|kellner/.test(t))return "Restaurantbeleg";
+  if(/hotel|übernacht|uebernacht|zimmer\s?nr|zimmernr|pension|boarding|logis/.test(t))return "Hotelbeleg";
+  if(/rechnung|invoice|ust-?id|umsatzsteuer|mehrwertsteuer|\bmwst\b|rechnungsnummer|rechnungs-?nr|leistungsdatum|steuernummer|zahlungsziel/.test(t))return "Rechnung";
   return "Beleg";
 }
 function parseAmt(s){ s=String(s).replace(/\s/g,""); s=s.replace(/\.(?=\d{3}(\D|$))/g,""); s=s.replace(",","."); return Number(s); }
 function extractAmount(text){
   var t=text||"", m, out=[];
-  var re=/(?:summe|gesamt|total|betrag|zu\s?zahlen|brutto|endbetrag)[^0-9\-]{0,18}(\d{1,3}(?:[.\s]\d{3})*[.,]\d{2})/gi;
+  var re=/(?:summe|gesamt|total|betrag|zu\s?zahlen|zahlbetrag|rechnungsbetrag|zu\s?zahlender|brutto|endbetrag|endsumme)[^0-9\-]{0,18}(\d{1,3}(?:[.\s]\d{3})*[.,]\d{2})/gi;
   while((m=re.exec(t))){ var v=parseAmt(m[1]); if(!isNaN(v))out.push(v); }
   if(out.length) return Math.max.apply(null,out);
   var re2=/(\d{1,3}(?:[.\s]\d{3})*[.,]\d{2})/g;
   while((m=re2.exec(t))){ var v2=parseAmt(m[1]); if(!isNaN(v2))out.push(v2); }
   return out.length?Math.max.apply(null,out):null;
 }
+function pad2(n){ return ("0"+n).slice(-2); }
+function validDate(d,mo,y){
+  var curY=(new Date()).getFullYear();
+  if(mo<1||mo>12||d<1||d>31) return false;
+  if(y<2010||y>curY) return false;                 // kein Zukunftsdatum, kein Unsinn
+  var dim=[31,(y%4===0&&(y%100!==0||y%400===0))?29:28,31,30,31,30,31,31,30,31,30,31];
+  return d<=dim[mo-1];
+}
 function extractDate(text){
-  var m=(text||"").match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
-  if(m){ var dd=("0"+m[1]).slice(-2), mm=("0"+m[2]).slice(-2), yy=m[3]; if(yy.length===2)yy="20"+yy; return dd+"."+mm+"."+yy; }
-  var m2=(text||"").match(/(\d{4})-(\d{2})-(\d{2})/);
-  if(m2) return m2[3]+"."+m2[2]+"."+m2[1];
+  var t=text||"", m;
+  var re=/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/g;   // TT.MM.JJ(JJ)
+  while((m=re.exec(t))){
+    var d=parseInt(m[1],10), mo=parseInt(m[2],10), y=parseInt(m[3],10); if(m[3].length===2)y+=2000;
+    if(validDate(d,mo,y)) return pad2(d)+"."+pad2(mo)+"."+y;   // erstes GÜLTIGES Datum
+  }
+  var re2=/(\d{4})-(\d{1,2})-(\d{1,2})/g;              // JJJJ-MM-TT
+  while((m=re2.exec(t))){
+    var y2=parseInt(m[1],10), mo2=parseInt(m[2],10), d2=parseInt(m[3],10);
+    if(validDate(d2,mo2,y2)) return pad2(d2)+"."+pad2(mo2)+"."+y2;
+  }
   return null;
 }
 function fileExt(name){ var m=(name||"").match(/\.[A-Za-z0-9]+$/); return m?m[0]:""; }
-function makeName(type,date,origName){ return (type||"Beleg")+(date?(" "+date):"")+fileExt(origName); }
+function fmtAmt(a){ return a.toFixed(2).replace(".",","); }
+// Name = Typ + (gültiges Datum) + (Betrag) -> eindeutig & informativ, z.B. "Tankbeleg 30.05.2020 27,50€.jpeg"
+function makeName(type,date,amount,origName){
+  var s=(type||"Beleg");
+  if(date) s+=" "+date;
+  if(amount!=null) s+=" "+fmtAmt(amount)+"€";
+  return s+fileExt(origName);
+}
 // Kern: liest 1 Beleg, setzt Kategorie + Betrag + benennt um. Wirft bei Fehler.
 async function processDoc(d){
   var r=await supa().storage.from("documents").download(d.storage_path);
   if(r.error) throw new Error("[Download] "+(r.error.message||JSON.stringify(r.error)));
   var text=await extractText(r.data,d.name);
   var type=classifyDoc(text), amt=extractAmount(text), date=extractDate(text);
-  var upd={ category:type, name:makeName(type,date,d.name) };
+  var upd={ category:type, name:makeName(type,date,amt,d.name) };
   if(amt!=null) upd.amount=amt;
   var u=await supa().from("documents").update(upd).eq("id",d.id);
   if(u.error) throw new Error("[Speichern] "+(u.error.message||JSON.stringify(u.error)));
