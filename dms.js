@@ -2,7 +2,7 @@
 (function(){
 "use strict";
 
-var S={ folder:"", trash:false, showHidden:false, q:"" };
+var S={ folder:"", trash:false, showHidden:false, q:"", group:"" };
 var folders=[];          // {id,name}
 var currentRows=[];      // aktuell angezeigte Dokumente
 
@@ -43,7 +43,14 @@ function open(){
   var hidW=el("label","dms-chk"); var hid=el("input"); hid.type="checkbox"; hid.onchange=function(){S.showHidden=hid.checked; loadDocs();}; hidW.appendChild(hid); hidW.appendChild(el("span",null,"Verborgene"));
   var trash=el("button","btn","Papierkorb"); trash.id="dms-trashbtn"; trash.onclick=function(){S.trash=!S.trash; trash.classList.toggle("btn-primary",S.trash); trash.textContent=S.trash?"Zurueck":"Papierkorb"; loadDocs();};
 
-  [up,fileIn,nf,fsel,zip,search,hidW,trash].forEach(function(x){bar.appendChild(x);});
+  var grp=el("select","dms-sel"); grp.id="dms-group";
+  grp.appendChild(new Option("Sortieren: keine",""));
+  grp.appendChild(new Option("nach Tag","day"));
+  grp.appendChild(new Option("nach Woche","week"));
+  grp.appendChild(new Option("nach Monat","month"));
+  grp.value=S.group; grp.onchange=function(){S.group=grp.value; renderDocs(currentRows);};
+
+  [up,fileIn,nf,fsel,zip,search,grp,hidW,trash].forEach(function(x){bar.appendChild(x);});
   root.appendChild(bar);
   var m=el("div","dms-msg",""); m.id="dms-msg"; m.setAttribute("role","status"); root.appendChild(m);
   var list=el("div","dms-list"); list.id="dms-list"; root.appendChild(list);
@@ -81,31 +88,55 @@ async function loadDocs(){
 function renderDocs(rows){
   var list=document.getElementById("dms-list"); if(!list)return; list.innerHTML="";
   if(!rows.length){ list.appendChild(el("p","lead", S.trash?"Papierkorb ist leer.":"Noch keine Dokumente. Klick auf \"Hochladen\".")); return; }
-  rows.forEach(function(d){
-    var row=el("div","doc"+(d.is_hidden?" doc-hidden":""));
-    var main=el("div","doc-main");
-    var nm=el("div","doc-name"); nm.appendChild(el("b",null,d.name)); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); main.appendChild(nm);
-    var meta=[]; if(d.category)meta.push(d.category); if(d.folder_id)meta.push("Ordner: "+folderName(d.folder_id)); if(d.size_bytes!=null)meta.push(fmtSize(d.size_bytes)); meta.push(fmtDate(d.created_at));
-    main.appendChild(el("div","doc-meta",meta.join(" · ")));
-    if(d.tags&&d.tags.length)main.appendChild(el("div","doc-tags",d.tags.map(function(t){return "#"+t;}).join(" ")));
-    row.appendChild(main);
-
-    var act=el("div","doc-act");
-    if(S.trash){
-      act.appendChild(btn("Wiederherstellen","btn-sm",function(){restore(d);}));
-      act.appendChild(btn("Endgueltig loeschen","btn-sm btn-danger",function(){hardDelete(d);}));
-    } else {
-      act.appendChild(btn("Download","btn-sm",function(){download(d);}));
-      var mv=el("select","btn-sm dms-move"); mv.appendChild(new Option("Ordner verschieben...","")); folders.forEach(function(f){mv.appendChild(new Option(f.name,f.id));}); if(d.folder_id)mv.value=d.folder_id;
-      mv.onchange=function(){moveFolder(d,mv.value||null);}; act.appendChild(mv);
-      act.appendChild(btn("Kategorie","btn-sm",function(){setCategory(d);}));
-      act.appendChild(btn(d.is_hidden?"Einblenden":"Verbergen","btn-sm",function(){toggleHidden(d);}));
-      act.appendChild(btn("Loeschen","btn-sm btn-danger",function(){softDelete(d);}));
-    }
-    row.appendChild(act);
-    list.appendChild(row);
-  });
+  if(S.group){
+    var lastKey=null;
+    rows.forEach(function(d){
+      var k=groupKey(d.created_at,S.group);
+      if(k!==lastKey){ lastKey=k; list.appendChild(el("div","doc-group",groupLabel(d.created_at,S.group))); }
+      list.appendChild(docRow(d));
+    });
+  } else {
+    rows.forEach(function(d){ list.appendChild(docRow(d)); });
+  }
 }
+function docRow(d){
+  var row=el("div","doc"+(d.is_hidden?" doc-hidden":""));
+  var main=el("div","doc-main");
+  var nm=el("div","doc-name"); nm.appendChild(el("b",null,d.name)); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); main.appendChild(nm);
+  var meta=[]; if(d.category)meta.push(d.category); if(d.folder_id)meta.push("Ordner: "+folderName(d.folder_id)); if(d.size_bytes!=null)meta.push(fmtSize(d.size_bytes)); meta.push(fmtDate(d.created_at));
+  main.appendChild(el("div","doc-meta",meta.join(" · ")));
+  if(d.tags&&d.tags.length)main.appendChild(el("div","doc-tags",d.tags.map(function(t){return "#"+t;}).join(" ")));
+  row.appendChild(main);
+
+  var act=el("div","doc-act");
+  if(S.trash){
+    act.appendChild(btn("Wiederherstellen","btn-sm",function(){restore(d);}));
+    act.appendChild(btn("Endgueltig loeschen","btn-sm btn-danger",function(){hardDelete(d);}));
+  } else {
+    act.appendChild(btn("Download","btn-sm",function(){download(d);}));
+    var mv=el("select","btn-sm dms-move"); mv.appendChild(new Option("Ordner verschieben...","")); folders.forEach(function(f){mv.appendChild(new Option(f.name,f.id));}); if(d.folder_id)mv.value=d.folder_id;
+    mv.onchange=function(){moveFolder(d,mv.value||null);}; act.appendChild(mv);
+    act.appendChild(btn("Kategorie","btn-sm",function(){setCategory(d);}));
+    act.appendChild(btn(d.is_hidden?"Einblenden":"Verbergen","btn-sm",function(){toggleHidden(d);}));
+    act.appendChild(btn("Loeschen","btn-sm btn-danger",function(){softDelete(d);}));
+  }
+  row.appendChild(act);
+  return row;
+}
+// ----- Gruppierung nach Tag / Woche / Monat -----
+function p2(n){return (n<10?"0":"")+n;}
+function cap(s){return s?s.charAt(0).toUpperCase()+s.slice(1):s;}
+function isoWeek(d){ var t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); var day=t.getUTCDay()||7; t.setUTCDate(t.getUTCDate()+4-day); var ys=new Date(Date.UTC(t.getUTCFullYear(),0,1)); return Math.ceil((((t-ys)/86400000)+1)/7); }
+function groupKey(s,mode){ var d=new Date(s);
+  if(mode==="day")return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate());
+  if(mode==="month")return d.getFullYear()+"-"+p2(d.getMonth()+1);
+  if(mode==="week")return d.getFullYear()+"-KW"+p2(isoWeek(d));
+  return ""; }
+function groupLabel(s,mode){ var d=new Date(s);
+  if(mode==="day")return cap(d.toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"}));
+  if(mode==="month")return cap(d.toLocaleDateString(undefined,{month:"long",year:"numeric"}));
+  if(mode==="week")return "KW "+isoWeek(d)+" · "+d.getFullYear();
+  return ""; }
 function btn(txt,cls,fn){var b=el("button","btn "+cls,txt); b.onclick=fn; return b;}
 
 /* ---------- Aktionen ---------- */
