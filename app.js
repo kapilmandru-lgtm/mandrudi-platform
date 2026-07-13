@@ -99,6 +99,7 @@ function show(view){
   document.querySelectorAll(".view").forEach(function(v){v.classList.add("hidden");});
   var el=document.getElementById("view-"+view); if(el)el.classList.remove("hidden");
   document.querySelectorAll(".nav-item").forEach(function(b){b.classList.toggle("active",b.getAttribute("data-view")===view);});
+  if(view==="dms" && window.MPDMS){window.MPDMS.open();}
 }
 
 /* ---- Add-ons (Tools) ---- */
@@ -132,12 +133,23 @@ function openTool(tool){
 }
 
 /* ---- Auth ---- */
-var supa=null, DEMO=true;
-function enterApp(email){
+var supa=null, DEMO=true, currentUser=null;
+function enterApp(email,user){
+  currentUser=user||null;
   document.getElementById("auth").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
   document.getElementById("userEmail").textContent=email||"";
+  initMP();
   show("dashboard");
+}
+// Gemeinsame API für die Module (DMS, PM, …)
+function initMP(){
+  window.MP={supa:supa, user:currentUser, tenantId:null, t:t, get lang(){return lang;}};
+  if(supa && currentUser){
+    supa.from("profiles").select("tenant_id").eq("id",currentUser.id).single().then(function(r){
+      if(r&&r.data){window.MP.tenantId=r.data.tenant_id;}
+    }).catch(function(){});
+  }
 }
 function authMsg(msg,err){var m=document.getElementById("authMsg");m.textContent=msg||"";m.className="auth-msg"+(err?" err":"");}
 
@@ -152,7 +164,7 @@ async function initAuth(){
       await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js");
       supa=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON);
       var ses=await supa.auth.getSession();
-      if(ses.data.session){enterApp(ses.data.session.user.email);}
+      if(ses.data.session){enterApp(ses.data.session.user.email, ses.data.session.user);}
       noteEl.textContent="";
     }catch(e){DEMO=true; noteEl.textContent="Supabase nicht erreichbar – Demo-Modus.";}
   }else{
@@ -164,7 +176,7 @@ async function initAuth(){
     if(DEMO){authMsg("Noch kein Login eingerichtet – nutze „Demo\" oder trage Supabase in config.js ein.",true);return;}
     var e=val("authEmail"),p=val("authPass"); if(!e||!p){authMsg("Bitte E-Mail und Passwort eingeben.",true);return;}
     authMsg("…");var r=await supa.auth.signInWithPassword({email:e,password:p});
-    if(r.error)authMsg(r.error.message,true); else enterApp(r.data.user.email);
+    if(r.error)authMsg(r.error.message,true); else enterApp(r.data.user.email, r.data.user);
   };
   document.getElementById("btnRegister").onclick=async function(){
     if(DEMO){authMsg("Registrierung braucht das Supabase-Konto (config.js).",true);return;}
