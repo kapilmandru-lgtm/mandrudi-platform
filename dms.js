@@ -177,8 +177,8 @@ function docRow(d){
     cb.onchange=function(){ if(cb.checked)selected.add(d.id); else selected.delete(d.id); updateSelBar(); };
     row.appendChild(cb);
   }
-  var main=el("div","doc-main");
-  var nm=el("div","doc-name"); var nb=el("b","doc-name-b",d.name); nb.title="Klicken zum Umbenennen"; nb.onclick=function(){renameDoc(d);}; nm.appendChild(nb); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); main.appendChild(nm);
+  var main=el("div","doc-main doc-clickable"); main.title="Klicken: Beleg anzeigen"; main.onclick=function(){openPreview(d);};
+  var nm=el("div","doc-name"); var nb=el("b","doc-name-b",d.name); nb.onmouseenter=function(){hoverPreview(d,nb);}; nb.onmouseleave=hideHover; nm.appendChild(nb); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); main.appendChild(nm);
   var meta=[]; if(d.category)meta.push(d.category); if(d.amount!=null)meta.push(Number(d.amount).toFixed(2)+" €"); if(d.folder_id)meta.push("Ordner: "+folderName(d.folder_id)); if(d.size_bytes!=null)meta.push(fmtSize(d.size_bytes)); meta.push(fmtDate(d.created_at));
   main.appendChild(el("div","doc-meta",meta.join(" · ")));
   if(d.tags&&d.tags.length)main.appendChild(el("div","doc-tags",d.tags.map(function(t){return "#"+t;}).join(" ")));
@@ -413,6 +413,55 @@ async function renameDoc(d){
   var r=await supa().from("documents").update({name:v.trim()}).eq("id",d.id);
   if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs();
 }
+
+// ===== Beleg-Vorschau (privater Speicher -> signierte, zeitlich begrenzte URL) =====
+var urlCache={};
+function isImgName(n){ return /\.(jpe?g|png|gif|webp|bmp|heic|heif|avif)$/i.test(n||""); }
+function isPdfName(n){ return /\.pdf$/i.test(n||""); }
+async function previewUrl(d){
+  if(urlCache[d.id]) return urlCache[d.id];
+  var r=await supa().storage.from("documents").createSignedUrl(d.storage_path,3600);
+  if(r.error||!r.data||!r.data.signedUrl) throw new Error((r.error&&r.error.message)||"Vorschau-URL fehlgeschlagen");
+  urlCache[d.id]=r.data.signedUrl; return urlCache[d.id];
+}
+// Klick -> großes Popup (Lightbox)
+async function openPreview(d){
+  var ov=el("div","dms-modal"), inner=el("div","dms-modal-inner"), bar=el("div","dms-modal-bar");
+  function close(){ ov.remove(); document.removeEventListener("keydown",onKey); }
+  function onKey(e){ if(e.key==="Escape")close(); }
+  bar.appendChild(el("b",null,d.name));
+  bar.appendChild(el("span","dms-modal-spacer"));
+  bar.appendChild(btn("Umbenennen","btn-sm",function(){ close(); renameDoc(d); }));
+  bar.appendChild(btn("Download","btn-sm",function(){ download(d); }));
+  bar.appendChild(btn("Schließen","btn-sm",close));
+  inner.appendChild(bar);
+  var body=el("div","dms-modal-body"); body.textContent="Lädt …"; inner.appendChild(body);
+  ov.appendChild(inner); ov.onclick=function(e){ if(e.target===ov)close(); };
+  document.addEventListener("keydown",onKey); document.body.appendChild(ov);
+  try{
+    var url=await previewUrl(d); body.textContent="";
+    if(isImgName(d.name)){ var im=el("img","dms-modal-img"); im.src=url; body.appendChild(im); }
+    else if(isPdfName(d.name)){ var fr=el("iframe","dms-modal-frame"); fr.src=url; body.appendChild(fr); }
+    else { body.appendChild(el("p",null,"Keine Bildvorschau für diesen Dateityp – bitte herunterladen.")); }
+  }catch(e){ body.textContent="Vorschau fehlgeschlagen: "+String(e&&e.message||e); }
+}
+// Maus über Namen -> kleines Thumbnail (nur Bilder)
+var hoverEl=null, hoverTimer=null, hoverId=null;
+function ensureHover(){ if(!hoverEl){ hoverEl=el("div","dms-hover"); hoverEl.style.display="none"; document.body.appendChild(hoverEl); } return hoverEl; }
+function hoverPreview(d,anchor){
+  if(!isImgName(d.name))return;
+  clearTimeout(hoverTimer);
+  hoverTimer=setTimeout(function(){
+    var h=ensureHover(); hoverId=d.id; h.innerHTML=""; h.style.display="block";
+    h.appendChild(el("div","dms-hover-load","Lädt …"));
+    var r=anchor.getBoundingClientRect();
+    h.style.left=Math.max(8,Math.min(r.left,window.innerWidth-244))+"px";
+    h.style.top=Math.min(r.bottom+8,window.innerHeight-244)+"px";
+    previewUrl(d).then(function(u){ if(h.style.display==="none"||hoverId!==d.id)return; h.innerHTML=""; var im=el("img"); im.src=u; h.appendChild(im); })
+      .catch(function(){ if(hoverId===d.id)h.style.display="none"; });
+  },220);
+}
+function hideHover(){ clearTimeout(hoverTimer); hoverId=null; if(hoverEl)hoverEl.style.display="none"; }
 
 window.MPDMS={ open:open };
 })();

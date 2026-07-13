@@ -143,6 +143,19 @@ h1,h2{letter-spacing:-.02em}
 .doc-name b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .doc-name-b{cursor:pointer}
 .doc-name-b:hover{color:var(--accent);text-decoration:underline}
+/* Beleg-Vorschau: Klick-Popup + Hover-Thumbnail */
+.doc-clickable{cursor:pointer}
+.dms-modal{position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;z-index:1000;padding:24px}
+.dms-modal-inner{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);max-width:94vw;max-height:94vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow)}
+.dms-modal-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.dms-modal-bar b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:44vw;color:var(--ink)}
+.dms-modal-spacer{flex:1}
+.dms-modal-body{padding:12px;overflow:auto;display:flex;align-items:center;justify-content:center;min-width:280px;min-height:180px;color:var(--muted)}
+.dms-modal-img{max-width:90vw;max-height:82vh;object-fit:contain;border-radius:6px}
+.dms-modal-frame{width:88vw;height:82vh;border:0;background:#fff}
+.dms-hover{position:fixed;z-index:1100;pointer-events:none;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:5px;box-shadow:var(--shadow)}
+.dms-hover img{display:block;max-width:230px;max-height:230px;object-fit:contain;border-radius:6px}
+.dms-hover-load{font-size:12px;color:var(--muted);padding:16px 22px}
 .doc-badge{font-size:11px;font-weight:700;color:var(--faint);border:1px solid var(--line);border-radius:999px;padding:1px 7px}
 .doc-meta{font-size:12px;color:var(--muted);margin-top:2px}
 .doc-tags{font-size:12px;color:var(--accent);margin-top:2px}
