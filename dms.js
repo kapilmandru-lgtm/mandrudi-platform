@@ -16,6 +16,10 @@ function handleErr(err,fallback){ if(isAuthErr(err)){ if(MP().requireLogin)MP().
 function uuid(){try{return crypto.randomUUID();}catch(e){return Date.now()+"_"+Math.floor(Math.random()*1e9);}}
 function fmtSize(b){ if(b==null)return""; if(b<1024)return b+" B"; if(b<1048576)return (b/1024).toFixed(0)+" KB"; return (b/1048576).toFixed(1)+" MB"; }
 function fmtDate(s){try{return new Date(s).toLocaleDateString();}catch(e){return"";}}
+function fmtDateObj(dt){try{return dt.toLocaleDateString();}catch(e){return"";}}
+// Beleg-Datum aus dem Namen lesen (z.B. "Tankbeleg 30.05.2020 27,50€.jpeg"); sonst Upload-Datum
+function parseNameDate(name){ var m=/(\d{2})\.(\d{2})\.(\d{4})/.exec(name||""); if(!m)return null; var dd=+m[1],mo=+m[2],y=+m[3]; if(mo<1||mo>12||dd<1||dd>31)return null; var dt=new Date(y,mo-1,dd); return isNaN(dt.getTime())?null:dt; }
+function docDate(d){ return parseNameDate(d.name) || new Date(d.created_at); }
 function folderName(id){for(var i=0;i<folders.length;i++)if(folders[i].id===id)return folders[i].name; return "";}
 
 async function ensureTenant(){
@@ -90,7 +94,8 @@ async function loadDocs(){
   if(S.q)qy=qy.ilike("name","%"+S.q+"%");
   var r=await qy;
   if(r.error){list.textContent=""; handleErr(r.error,"Fehler beim Laden"); return;}
-  currentRows=r.data||[]; renderDocs(currentRows);
+  currentRows=(r.data||[]).slice().sort(function(a,b){ return docDate(b)-docDate(a); }); // nach Beleg-Datum, neueste zuerst
+  renderDocs(currentRows);
 }
 
 function renderDocs(rows){
@@ -99,8 +104,8 @@ function renderDocs(rows){
   if(S.group){
     var lastKey=null;
     rows.forEach(function(d){
-      var k=groupKey(d.created_at,S.group);
-      if(k!==lastKey){ lastKey=k; list.appendChild(el("div","doc-group",groupLabel(d.created_at,S.group))); }
+      var dd=docDate(d); var k=groupKey(dd,S.group);
+      if(k!==lastKey){ lastKey=k; list.appendChild(el("div","doc-group",groupLabel(dd,S.group))); }
       list.appendChild(docRow(d));
     });
   } else {
@@ -179,7 +184,7 @@ function docRow(d){
   }
   var main=el("div","doc-main doc-clickable"); main.title="Klicken: Beleg anzeigen"; main.onclick=function(){openPreview(d);};
   var nm=el("div","doc-name"); var nb=el("b","doc-name-b",d.name); nb.onmouseenter=function(){hoverPreview(d,nb);}; nb.onmouseleave=hideHover; nm.appendChild(nb); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); main.appendChild(nm);
-  var meta=[]; if(d.category)meta.push(d.category); if(d.amount!=null)meta.push(Number(d.amount).toFixed(2)+" €"); if(d.folder_id)meta.push("Ordner: "+folderName(d.folder_id)); if(d.size_bytes!=null)meta.push(fmtSize(d.size_bytes)); meta.push(fmtDate(d.created_at));
+  var meta=[]; if(d.category)meta.push(d.category); if(d.amount!=null)meta.push(Number(d.amount).toFixed(2)+" €"); if(d.folder_id)meta.push("Ordner: "+folderName(d.folder_id)); if(d.size_bytes!=null)meta.push(fmtSize(d.size_bytes)); var pd=parseNameDate(d.name); meta.push(pd?("Beleg: "+fmtDateObj(pd)):("Upload: "+fmtDate(d.created_at)));
   main.appendChild(el("div","doc-meta",meta.join(" · ")));
   if(d.tags&&d.tags.length)main.appendChild(el("div","doc-tags",d.tags.map(function(t){return "#"+t;}).join(" ")));
   row.appendChild(main);
@@ -282,13 +287,13 @@ async function analyze(){
   msg("Erstelle Excel-Auswertung ...");
   try{ await loadXLSX(); }catch(e){ msg("Excel-Bibliothek konnte nicht geladen werden.",true); return; }
   var data=rows.map(function(d){ return {
-    Name:d.name, Datum:fmtDate(d.created_at), Kategorie:d.category||"",
-    Ordner:(d.folder_id?folderName(d.folder_id):""), Betrag:(d.amount!=null?Number(d.amount):"")
+    Name:d.name, Datum:fmtDateObj(docDate(d)), Kategorie:d.category||"",
+    Ordner:(d.folder_id?folderName(d.folder_id):""), Betrag:(d.amount!=null?Number(d.amount):""), Hochgeladen:fmtDate(d.created_at)
   };});
   var total=0, n=0, byCat={}, byMonth={};
   rows.forEach(function(d){ if(d.amount!=null){ var a=Number(d.amount); total+=a; n++;
     var c=d.category||"(ohne Kategorie)"; byCat[c]=(byCat[c]||0)+a;
-    var mo=groupLabel(d.created_at,"month"); byMonth[mo]=(byMonth[mo]||0)+a; }});
+    var mo=groupLabel(docDate(d),"month"); byMonth[mo]=(byMonth[mo]||0)+a; }});
   var sum=[["Beleg-Auswertung",""],["Dokumente gesamt",rows.length],["davon mit Betrag",n],["Summe Betrag",round2(total)],["",""],["Summe je Kategorie",""]];
   Object.keys(byCat).forEach(function(k){sum.push([k,round2(byCat[k])]);});
   sum.push(["",""],["Summe je Monat",""]);
