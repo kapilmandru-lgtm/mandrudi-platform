@@ -73,6 +73,7 @@ create table if not exists public.documents (
 
 create index if not exists documents_tenant_idx on public.documents(tenant_id);
 create index if not exists documents_folder_idx on public.documents(folder_id);
+alter table public.documents add column if not exists amount numeric;   -- Betrag je Beleg (für Analyse/Excel)
 
 -- ---------- 6) Row Level Security aktivieren ----------
 alter table public.tenants   enable row level security;

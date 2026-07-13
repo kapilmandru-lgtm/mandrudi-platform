@@ -51,7 +51,9 @@ function open(){
   grp.appendChild(new Option("nach Monat","month"));
   grp.value=S.group; grp.onchange=function(){S.group=grp.value; renderDocs(currentRows);};
 
-  [up,fileIn,nf,fsel,zip,search,grp,hidW,trash].forEach(function(x){bar.appendChild(x);});
+  var ana=el("button","btn","Analyse"); ana.onclick=analyze;
+
+  [up,fileIn,nf,fsel,zip,ana,search,grp,hidW,trash].forEach(function(x){bar.appendChild(x);});
   root.appendChild(bar);
   var m=el("div","dms-msg",""); m.id="dms-msg"; m.setAttribute("role","status"); root.appendChild(m);
   selected=new Set();
@@ -148,7 +150,7 @@ function docRow(d){
   }
   var main=el("div","doc-main");
   var nm=el("div","doc-name"); nm.appendChild(el("b",null,d.name)); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); main.appendChild(nm);
-  var meta=[]; if(d.category)meta.push(d.category); if(d.folder_id)meta.push("Ordner: "+folderName(d.folder_id)); if(d.size_bytes!=null)meta.push(fmtSize(d.size_bytes)); meta.push(fmtDate(d.created_at));
+  var meta=[]; if(d.category)meta.push(d.category); if(d.amount!=null)meta.push(Number(d.amount).toFixed(2)+" €"); if(d.folder_id)meta.push("Ordner: "+folderName(d.folder_id)); if(d.size_bytes!=null)meta.push(fmtSize(d.size_bytes)); meta.push(fmtDate(d.created_at));
   main.appendChild(el("div","doc-meta",meta.join(" · ")));
   if(d.tags&&d.tags.length)main.appendChild(el("div","doc-tags",d.tags.map(function(t){return "#"+t;}).join(" ")));
   row.appendChild(main);
@@ -162,6 +164,7 @@ function docRow(d){
     var mv=el("select","btn-sm dms-move"); mv.appendChild(new Option("Ordner verschieben...","")); folders.forEach(function(f){mv.appendChild(new Option(f.name,f.id));}); if(d.folder_id)mv.value=d.folder_id;
     mv.onchange=function(){moveFolder(d,mv.value||null);}; act.appendChild(mv);
     act.appendChild(btn("Kategorie","btn-sm",function(){setCategory(d);}));
+    act.appendChild(btn("Betrag","btn-sm",function(){setAmount(d);}));
     act.appendChild(btn(d.is_hidden?"Einblenden":"Verbergen","btn-sm",function(){toggleHidden(d);}));
     act.appendChild(btn("Loeschen","btn-sm btn-danger",function(){softDelete(d);}));
   }
@@ -222,6 +225,39 @@ async function downloadZip(){
 }
 async function moveFolder(d,fid){ var r=await supa().from("documents").update({folder_id:fid}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs(); }
 async function setCategory(d){ var c=prompt("Kategorie fuer \""+d.name+"\":", d.category||""); if(c===null)return; var r=await supa().from("documents").update({category:c||null}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs(); }
+async function setAmount(d){
+  var v=prompt("Betrag (€) für \""+d.name+"\" – z.B. 149,90 (leer = löschen):", d.amount!=null?String(d.amount).replace(".",","):"");
+  if(v===null)return; v=String(v).replace(/\./g,"").replace(",",".").trim();
+  var num=(v==="")?null:Number(v);
+  if(num!==null && isNaN(num)){msg("Bitte eine gültige Zahl eingeben.",true);return;}
+  var r=await supa().from("documents").update({amount:num}).eq("id",d.id);
+  if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs();
+}
+function round2(n){return Math.round(n*100)/100;}
+function loadXLSX(){return new Promise(function(res,rej){ if(window.XLSX)return res(); var s=el("script"); s.src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });}
+async function analyze(){
+  var rows=currentRows;
+  if(!rows.length){msg("Keine Dokumente zum Analysieren.",true);return;}
+  msg("Erstelle Excel-Auswertung ...");
+  try{ await loadXLSX(); }catch(e){ msg("Excel-Bibliothek konnte nicht geladen werden.",true); return; }
+  var data=rows.map(function(d){ return {
+    Name:d.name, Datum:fmtDate(d.created_at), Kategorie:d.category||"",
+    Ordner:(d.folder_id?folderName(d.folder_id):""), Betrag:(d.amount!=null?Number(d.amount):"")
+  };});
+  var total=0, n=0, byCat={}, byMonth={};
+  rows.forEach(function(d){ if(d.amount!=null){ var a=Number(d.amount); total+=a; n++;
+    var c=d.category||"(ohne Kategorie)"; byCat[c]=(byCat[c]||0)+a;
+    var mo=groupLabel(d.created_at,"month"); byMonth[mo]=(byMonth[mo]||0)+a; }});
+  var sum=[["Beleg-Auswertung",""],["Dokumente gesamt",rows.length],["davon mit Betrag",n],["Summe Betrag",round2(total)],["",""],["Summe je Kategorie",""]];
+  Object.keys(byCat).forEach(function(k){sum.push([k,round2(byCat[k])]);});
+  sum.push(["",""],["Summe je Monat",""]);
+  Object.keys(byMonth).forEach(function(k){sum.push([k,round2(byMonth[k])]);});
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "Dokumente");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sum), "Zusammenfassung");
+  XLSX.writeFile(wb, "Beleg-Analyse.xlsx");
+  msg(rows.length+" Belege analysiert · Summe "+round2(total).toFixed(2)+" € · Excel heruntergeladen.");
+}
 async function toggleHidden(d){ var r=await supa().from("documents").update({is_hidden:!d.is_hidden}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs(); }
 async function softDelete(d){ if(!confirm("\""+d.name+"\" in den Papierkorb verschieben?"))return; var r=await supa().from("documents").update({deleted_at:new Date().toISOString()}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else {msg("In den Papierkorb verschoben."); loadDocs();} }
 async function restore(d){ var r=await supa().from("documents").update({deleted_at:null}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs(); }
