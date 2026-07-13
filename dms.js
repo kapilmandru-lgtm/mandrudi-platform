@@ -420,9 +420,13 @@ function isImgName(n){ return /\.(jpe?g|png|gif|webp|bmp|heic|heif|avif)$/i.test
 function isPdfName(n){ return /\.pdf$/i.test(n||""); }
 async function previewUrl(d){
   if(urlCache[d.id]) return urlCache[d.id];
-  var r=await supa().storage.from("documents").createSignedUrl(d.storage_path,3600);
-  if(r.error||!r.data||!r.data.signedUrl) throw new Error((r.error&&r.error.message)||"Vorschau-URL fehlgeschlagen");
-  urlCache[d.id]=r.data.signedUrl; return urlCache[d.id];
+  // bewährter Download-Weg (kein signierter Link nötig) -> lokale Objekt-URL
+  var r=await supa().storage.from("documents").download(d.storage_path);
+  if(r.error||!r.data) throw new Error((r.error&&r.error.message)||"Datei-Download fehlgeschlagen");
+  var blob=r.data;
+  if(isPdfName(d.name) && blob.type!=="application/pdf"){ blob=blob.slice(0,blob.size,"application/pdf"); }
+  var u=URL.createObjectURL(blob);
+  urlCache[d.id]=u; return u;
 }
 // Klick -> großes Popup (Lightbox)
 async function openPreview(d){
@@ -440,7 +444,7 @@ async function openPreview(d){
   document.addEventListener("keydown",onKey); document.body.appendChild(ov);
   try{
     var url=await previewUrl(d); body.textContent="";
-    if(isImgName(d.name)){ var im=el("img","dms-modal-img"); im.src=url; body.appendChild(im); }
+    if(isImgName(d.name)){ var im=el("img","dms-modal-img"); im.onerror=function(){ body.textContent="Bild konnte nicht angezeigt werden."; }; im.src=url; body.appendChild(im); }
     else if(isPdfName(d.name)){ var fr=el("iframe","dms-modal-frame"); fr.src=url; body.appendChild(fr); }
     else { body.appendChild(el("p",null,"Keine Bildvorschau für diesen Dateityp – bitte herunterladen.")); }
   }catch(e){ body.textContent="Vorschau fehlgeschlagen: "+String(e&&e.message||e); }
