@@ -35,7 +35,7 @@ function open(){
 
   var bar=el("div","dms-bar");
   var up=el("button","btn btn-primary","Hochladen"); var fileIn=el("input"); fileIn.type="file"; fileIn.multiple=true; fileIn.style.display="none";
-  up.onclick=function(){fileIn.click();}; fileIn.onchange=function(){ if(fileIn.files.length)doUpload(fileIn.files); fileIn.value=""; };
+  up.onclick=function(){fileIn.click();}; fileIn.onchange=function(){ var fs=Array.prototype.slice.call(fileIn.files); fileIn.value=""; if(fs.length)doUpload(fs); };
   var nf=el("button","btn","+ Ordner"); nf.onclick=newFolder;
   var fsel=el("select","dms-sel"); fsel.id="dms-folder"; fsel.onchange=function(){S.folder=fsel.value; loadDocs();};
   var zip=el("button","btn","Ordner als ZIP"); zip.onclick=downloadZip;
