@@ -366,19 +366,25 @@ function makeName(type,date,origName){ return (type||"Beleg")+(date?(" "+date):"
 // Kern: liest 1 Beleg, setzt Kategorie + Betrag + benennt um. Wirft bei Fehler.
 async function processDoc(d){
   var r=await supa().storage.from("documents").download(d.storage_path);
-  if(r.error) throw new Error(r.error.message);
+  if(r.error) throw new Error("[Download] "+(r.error.message||JSON.stringify(r.error)));
   var text=await extractText(r.data,d.name);
   var type=classifyDoc(text), amt=extractAmount(text), date=extractDate(text);
   var upd={ category:type, name:makeName(type,date,d.name) };
   if(amt!=null) upd.amount=amt;
   var u=await supa().from("documents").update(upd).eq("id",d.id);
-  if(u.error) throw new Error(u.error.message);
+  if(u.error) throw new Error("[Speichern] "+(u.error.message||JSON.stringify(u.error)));
   return { type:type, amount:amt, name:upd.name };
 }
 async function readReceipt(d){
   msg("Lese Beleg … (beim ersten Foto lädt kurz das OCR-Paket)");
   try{ var res=await processDoc(d); msg("Erkannt & umbenannt: "+res.name+(res.amount!=null?(" · "+res.amount.toFixed(2)+" €"):"")+" — bitte prüfen."); loadDocs(); }
-  catch(e){ msg("Auslesen fehlgeschlagen: "+String(e&&e.message||e),true); }
+  catch(e){
+    var em=String(e&&e.message||e);
+    // Session prüfen, um Rechte- von Anmelde-Problem zu unterscheiden
+    var hasSession=false; try{ var s=await supa().auth.getSession(); hasSession=!!(s.data&&s.data.session); }catch(_){}
+    if(!hasSession){ if(MP().requireLogin)MP().requireLogin("Sitzung abgelaufen – bitte neu anmelden, dann erneut auslesen."); return; }
+    msg("Auslesen fehlgeschlagen (Sitzung aktiv): "+em,true);
+  }
 }
 async function renameDoc(d){
   var v=prompt("Neuer Name:", d.name); if(v===null||!v.trim())return;
