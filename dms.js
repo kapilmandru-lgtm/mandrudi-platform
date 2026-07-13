@@ -158,7 +158,7 @@ function docRow(d){
     row.appendChild(cb);
   }
   var main=el("div","doc-main");
-  var nm=el("div","doc-name"); nm.appendChild(el("b",null,d.name)); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); main.appendChild(nm);
+  var nm=el("div","doc-name"); var nb=el("b","doc-name-b",d.name); nb.title="Klicken zum Umbenennen"; nb.onclick=function(){renameDoc(d);}; nm.appendChild(nb); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); main.appendChild(nm);
   var meta=[]; if(d.category)meta.push(d.category); if(d.amount!=null)meta.push(Number(d.amount).toFixed(2)+" €"); if(d.folder_id)meta.push("Ordner: "+folderName(d.folder_id)); if(d.size_bytes!=null)meta.push(fmtSize(d.size_bytes)); meta.push(fmtDate(d.created_at));
   main.appendChild(el("div","doc-meta",meta.join(" · ")));
   if(d.tags&&d.tags.length)main.appendChild(el("div","doc-tags",d.tags.map(function(t){return "#"+t;}).join(" ")));
@@ -200,18 +200,24 @@ function btn(txt,cls,fn){var b=el("button","btn "+cls,txt); b.onclick=fn; return
 /* ---------- Aktionen ---------- */
 async function doUpload(files){
   var tid=await ensureTenant(); if(!tid){msg("Firma nicht ermittelt.",true);return;}
-  var u=MP().user, done=0, errs=[];
+  var u=MP().user, done=0, errs=[], newDocs=[];
   for(var i=0;i<files.length;i++){
     var f=files[i]; msg("Lade hoch ("+(i+1)+"/"+files.length+"): "+f.name+" ...");
     var safe=f.name.replace(/[^A-Za-z0-9._-]+/g,"_"); var path=tid+"/"+uuid()+"_"+safe;
     var upr=await supa().storage.from("documents").upload(path,f,{upsert:false});
     if(upr.error){errs.push("Storage: "+(upr.error.message||JSON.stringify(upr.error)));continue;}
-    var ins=await supa().from("documents").insert({tenant_id:tid, owner:u.id, name:f.name, storage_path:path, size_bytes:f.size, folder_id:S.folder||null});
+    var ins=await supa().from("documents").insert({tenant_id:tid, owner:u.id, name:f.name, storage_path:path, size_bytes:f.size, folder_id:S.folder||null}).select().single();
     if(ins.error){errs.push("DB: "+(ins.error.message||JSON.stringify(ins.error)));continue;}
-    done++;
+    done++; if(ins.data)newDocs.push(ins.data);
   }
-  if(errs.length){ msg(done+" ok, "+errs.length+" Fehler -> "+errs[0], true); }
-  else { msg(done+" Dokument(e) hochgeladen."); }
+  if(errs.length){ msg(done+" ok, "+errs.length+" Fehler -> "+errs[0], true); loadDocs(); return; }
+  // Neue Belege automatisch auslesen + umbenennen (lokal; bei Fotos etwas langsamer)
+  var read=0;
+  for(var j=0;j<newDocs.length;j++){
+    msg("Lese Beleg "+(j+1)+"/"+newDocs.length+" … (lokal, beim ersten Foto lädt kurz das OCR-Paket)");
+    try{ await processDoc(newDocs[j]); read++; }catch(e){ /* einzelne Fehler ignorieren, Original-Name bleibt */ }
+  }
+  msg(done+" hochgeladen · "+read+" automatisch benannt. Bitte Vorschläge prüfen.");
   loadDocs();
 }
 async function download(d){
@@ -323,20 +329,36 @@ function extractAmount(text){
   while((m=re2.exec(t))){ var v2=parseAmt(m[1]); if(!isNaN(v2))out.push(v2); }
   return out.length?Math.max.apply(null,out):null;
 }
+function extractDate(text){
+  var m=(text||"").match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+  if(m){ var dd=("0"+m[1]).slice(-2), mm=("0"+m[2]).slice(-2), yy=m[3]; if(yy.length===2)yy="20"+yy; return dd+"."+mm+"."+yy; }
+  var m2=(text||"").match(/(\d{4})-(\d{2})-(\d{2})/);
+  if(m2) return m2[3]+"."+m2[2]+"."+m2[1];
+  return null;
+}
+function fileExt(name){ var m=(name||"").match(/\.[A-Za-z0-9]+$/); return m?m[0]:""; }
+function makeName(type,date,origName){ return (type||"Beleg")+(date?(" "+date):"")+fileExt(origName); }
+// Kern: liest 1 Beleg, setzt Kategorie + Betrag + benennt um. Wirft bei Fehler.
+async function processDoc(d){
+  var r=await supa().storage.from("documents").download(d.storage_path);
+  if(r.error) throw new Error(r.error.message);
+  var text=await extractText(r.data,d.name);
+  var type=classifyDoc(text), amt=extractAmount(text), date=extractDate(text);
+  var upd={ category:type, name:makeName(type,date,d.name) };
+  if(amt!=null) upd.amount=amt;
+  var u=await supa().from("documents").update(upd).eq("id",d.id);
+  if(u.error) throw new Error(u.error.message);
+  return { type:type, amount:amt, name:upd.name };
+}
 async function readReceipt(d){
-  msg("Lese Beleg „"+d.name+"“ … (beim ersten Foto lädt kurz das OCR-Paket)");
-  try{
-    var r=await supa().storage.from("documents").download(d.storage_path);
-    if(r.error){msg("Datei-Fehler: "+r.error.message,true);return;}
-    var text=await extractText(r.data,d.name);
-    var cat=classifyDoc(text), amt=extractAmount(text);
-    var upd={}; if(cat)upd.category=cat; if(amt!=null)upd.amount=amt;
-    if(!Object.keys(upd).length){ msg("Nichts erkannt – bitte Typ/Betrag manuell setzen.",true); return; }
-    var u=await supa().from("documents").update(upd).eq("id",d.id);
-    if(u.error){msg("Speichern-Fehler: "+u.error.message,true);return;}
-    msg("Vorschlag: "+(cat||"?")+(amt!=null?(" · "+amt.toFixed(2)+" €"):"")+" — bitte prüfen/korrigieren.");
-    loadDocs();
-  }catch(e){ msg("Auslesen fehlgeschlagen: "+String(e&&e.message||e),true); }
+  msg("Lese Beleg … (beim ersten Foto lädt kurz das OCR-Paket)");
+  try{ var res=await processDoc(d); msg("Erkannt & umbenannt: "+res.name+(res.amount!=null?(" · "+res.amount.toFixed(2)+" €"):"")+" — bitte prüfen."); loadDocs(); }
+  catch(e){ msg("Auslesen fehlgeschlagen: "+String(e&&e.message||e),true); }
+}
+async function renameDoc(d){
+  var v=prompt("Neuer Name:", d.name); if(v===null||!v.trim())return;
+  var r=await supa().from("documents").update({name:v.trim()}).eq("id",d.id);
+  if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs();
 }
 
 window.MPDMS={ open:open };
