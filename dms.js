@@ -122,6 +122,7 @@ function updateSelBar(){
     fsel.appendChild(new Option("+ Neuer Ordner...","__new"));
     sb.appendChild(fsel);
     sb.appendChild(btn("Verschieben","btn-sm btn-primary",bulkMove));
+    sb.appendChild(btn("Ausgewählte löschen","btn-sm btn-danger",bulkDelete));
     sb.appendChild(btn("Auswahl aufheben","btn-sm",function(){selected.clear();renderDocs(currentRows);}));
   }
 }
@@ -140,6 +141,14 @@ async function bulkMove(){
   var r2=await supa().from("documents").update({folder_id:target}).in("id",ids);
   if(r2.error){msg("Fehler: "+r2.error.message,true);return;}
   msg(ids.length+" Dokument(e) verschoben."); selected.clear(); loadDocs();
+}
+async function bulkDelete(){
+  if(!selected.size)return;
+  var ids=[]; selected.forEach(function(id){ids.push(id);});
+  if(!confirm(ids.length+" Dokument(e) in den Papierkorb verschieben?"))return;
+  var r=await supa().from("documents").update({deleted_at:new Date().toISOString()}).in("id",ids);
+  if(r.error){msg("Fehler: "+r.error.message,true);return;}
+  msg(ids.length+" Dokument(e) in den Papierkorb verschoben."); selected.clear(); loadDocs();
 }
 function docRow(d){
   var row=el("div","doc"+(d.is_hidden?" doc-hidden":""));
