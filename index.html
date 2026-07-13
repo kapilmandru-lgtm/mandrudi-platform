@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mandrudi Plattform</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ===== Login-Overlay ===== -->
+<div id="auth" class="auth">
+  <div class="auth-card">
+    <img id="authLogo" class="auth-logo" alt="Mandrudi">
+    <h1 data-i18n="app_name">Mandrudi Plattform</h1>
+    <p class="auth-sub" data-i18n="auth_sub">Modulare Werkzeuge für Supply Chain, Dokumente &amp; Projekte.</p>
+    <div class="auth-form">
+      <input type="email" id="authEmail" data-i18n-ph="auth_email" placeholder="E-Mail" autocomplete="email">
+      <input type="password" id="authPass" data-i18n-ph="auth_pass" placeholder="Passwort" autocomplete="current-password">
+      <div class="auth-msg" id="authMsg" role="status" aria-live="polite"></div>
+      <div class="auth-btns">
+        <button class="btn btn-primary" id="btnLogin" data-i18n="auth_login">Anmelden</button>
+        <button class="btn btn-ghost" id="btnRegister" data-i18n="auth_register">Registrieren</button>
+      </div>
+      <button class="btn btn-demo" id="btnDemo" data-i18n="auth_demo">Ohne Konto ansehen (Demo)</button>
+    </div>
+    <p class="auth-note" id="authMode"></p>
+  </div>
+</div>
+
+<!-- ===== App ===== -->
+<div id="app" class="app hidden">
+  <header class="topbar">
+    <div class="brand">
+      <img id="brandLogo" class="brand-logo" alt="Mandrudi">
+      <span class="brand-name" data-i18n="app_name">Mandrudi Plattform</span>
+    </div>
+    <div class="topbar-right">
+      <select id="langSel" class="lang" aria-label="Sprache">
+        <option value="de">DE</option><option value="en">EN</option><option value="fr">FR</option>
+        <option value="es">ES</option><option value="it">IT</option><option value="ro">RO</option>
+      </select>
+      <button id="themeBtn" class="icon-btn" title="Hell/Dunkel" aria-label="Theme">◐</button>
+      <span id="userEmail" class="user-email"></span>
+      <button id="btnLogout" class="btn btn-ghost btn-sm" data-i18n="logout">Abmelden</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <nav id="nav">
+        <button class="nav-item active" data-view="dashboard"><span class="nav-ic">▦</span><span data-i18n="nav_dashboard">Übersicht</span></button>
+        <button class="nav-item" data-view="dms"><span class="nav-ic">🗂</span><span data-i18n="nav_dms">Dokumente</span></button>
+        <button class="nav-item" data-view="pm"><span class="nav-ic">✔</span><span data-i18n="nav_pm">Projekte</span></button>
+        <button class="nav-item" data-view="tools"><span class="nav-ic">🧰</span><span data-i18n="nav_tools">Tools &amp; Add-ons</span></button>
+      </nav>
+      <div class="sidebar-foot" data-i18n="phase0">Phase 0 · Gerüst</div>
+    </aside>
+
+    <main class="content">
+      <!-- Dashboard -->
+      <section id="view-dashboard" class="view">
+        <h2 data-i18n="dash_hi">Willkommen</h2>
+        <p class="lead" data-i18n="dash_sub">Wähle links ein Modul. Dokumente und Projekte kommen als Nächstes; die Tools sind bereits als Add-ons verfügbar.</p>
+        <div class="tiles">
+          <button class="tile" data-view="dms"><span class="tile-ic">🗂</span><b data-i18n="nav_dms">Dokumente</b><span data-i18n="dash_dms">Ablegen, suchen, teilen</span></button>
+          <button class="tile" data-view="pm"><span class="tile-ic">✔</span><b data-i18n="nav_pm">Projekte</b><span data-i18n="dash_pm">Aufgaben &amp; Boards</span></button>
+          <button class="tile" data-view="tools"><span class="tile-ic">🧰</span><b data-i18n="nav_tools">Tools &amp; Add-ons</b><span data-i18n="dash_tools">16 Rechner &amp; Checks</span></button>
+        </div>
+      </section>
+
+      <!-- DMS placeholder -->
+      <section id="view-dms" class="view hidden">
+        <h2 data-i18n="nav_dms">Dokumente</h2>
+        <span class="badge" data-i18n="soon">In Phase 1</span>
+        <p class="lead" data-i18n="dms_intro">Das Dokumentenmanagement (DMS) wird hier gebaut. Geplant:</p>
+        <ul class="feat">
+          <li data-i18n="dms_f1">PDF hochladen (Original behalten)</li>
+          <li data-i18n="dms_f2">Suche, Ordner &amp; Tags</li>
+          <li data-i18n="dms_f3">Versionen, unveränderbare Ablage, Aufbewahrungsfristen (GoBD)</li>
+          <li data-i18n="dms_f4">Dokumente per E-Mail teilen</li>
+          <li data-i18n="dms_f5">Nach Excel exportieren &amp; auswerten (Charts)</li>
+          <li data-i18n="dms_f6">Rollen &amp; Rechte je Nutzer</li>
+        </ul>
+      </section>
+
+      <!-- PM placeholder -->
+      <section id="view-pm" class="view hidden">
+        <h2 data-i18n="nav_pm">Projekte</h2>
+        <span class="badge" data-i18n="soon">In Phase 1</span>
+        <p class="lead" data-i18n="pm_intro">Das Projektmanagement (PM) dockt als zweites Modul an denselben Kern an. Geplant:</p>
+        <ul class="feat">
+          <li data-i18n="pm_f1">Projekte, Aufgaben (Liste &amp; Board), Zuständige, Fälligkeiten</li>
+          <li data-i18n="pm_f2">Kommentare &amp; Aktivität</li>
+          <li data-i18n="pm_f3">Verknüpfung zu DMS-Dokumenten</li>
+        </ul>
+      </section>
+
+      <!-- Tools / Add-ons -->
+      <section id="view-tools" class="view hidden">
+        <h2 data-i18n="nav_tools">Tools &amp; Add-ons</h2>
+        <p class="lead" data-i18n="tools_intro">Deine bestehenden Tools – je Bedarf zuschalten. Aktive Tools öffnest du direkt hier.</p>
+        <div id="toolGrid" class="tool-grid"></div>
+      </section>
+
+      <!-- embedded tool -->
+      <section id="view-frame" class="view hidden">
+        <div class="frame-bar">
+          <button class="btn btn-ghost btn-sm" id="frameBack">← <span data-i18n="back">Zurück</span></button>
+          <b id="frameTitle"></b>
+          <a id="frameOpen" class="btn btn-ghost btn-sm" target="_blank" rel="noopener" data-i18n="open_new">Neuer Tab ↗</a>
+        </div>
+        <iframe id="toolFrame" class="tool-frame" title="Tool"></iframe>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
