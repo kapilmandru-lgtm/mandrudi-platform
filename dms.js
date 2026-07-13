@@ -124,6 +124,7 @@ function updateSelBar(){
     fsel.appendChild(new Option("+ Neuer Ordner...","__new"));
     sb.appendChild(fsel);
     sb.appendChild(btn("Verschieben","btn-sm btn-primary",bulkMove));
+    sb.appendChild(btn("Ausgewählte auslesen","btn-sm",bulkRead));
     sb.appendChild(btn("Ausgewählte löschen","btn-sm btn-danger",bulkDelete));
     sb.appendChild(btn("Auswahl aufheben","btn-sm",function(){selected.clear();renderDocs(currentRows);}));
   }
@@ -151,6 +152,19 @@ async function bulkDelete(){
   var r=await supa().from("documents").update({deleted_at:new Date().toISOString()}).in("id",ids);
   if(r.error){msg("Fehler: "+r.error.message,true);return;}
   msg(ids.length+" Dokument(e) in den Papierkorb verschoben."); selected.clear(); loadDocs();
+}
+async function bulkRead(){
+  if(!selected.size)return;
+  var docs=currentRows.filter(function(d){return selected.has(d.id);});
+  if(!docs.length)return;
+  var read=0, lastErr=null;
+  for(var i=0;i<docs.length;i++){
+    msg("Lese Beleg "+(i+1)+"/"+docs.length+" … (lokal, beim ersten Foto lädt kurz das OCR-Paket)");
+    try{ await processDoc(docs[i]); read++; }catch(e){ lastErr=e; }
+  }
+  if(read===0 && isAuthErr(lastErr)){ MP().requireLogin&&MP().requireLogin(); loadDocs(); return; }
+  msg(read+"/"+docs.length+" ausgelesen & umbenannt"+(read<docs.length?" (Rest nicht erkannt – bitte Namen anklicken)":"")+".");
+  selected.clear(); loadDocs();
 }
 function docRow(d){
   var row=el("div","doc"+(d.is_hidden?" doc-hidden":""));
