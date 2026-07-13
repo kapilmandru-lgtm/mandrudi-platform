@@ -102,6 +102,13 @@ create policy documents_all_same_tenant on public.documents
   for all using (tenant_id = public.current_tenant_id())
   with check (tenant_id = public.current_tenant_id());
 
+-- ---------- 6b) Zugriffsrechte (nötig, weil "auto-expose new tables" bewusst AUS ist) ----------
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.documents to authenticated;
+grant select, insert, update, delete on public.folders    to authenticated;
+grant select on public.tenants to authenticated;
+grant select, update on public.profiles to authenticated;
+
 -- ---------- 7) Privater Datei-Speicher (Storage-Bucket) ----------
 insert into storage.buckets (id, name, public)
   values ('documents','documents', false)
