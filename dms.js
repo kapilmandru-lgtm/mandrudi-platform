@@ -165,6 +165,7 @@ function docRow(d){
     mv.onchange=function(){moveFolder(d,mv.value||null);}; act.appendChild(mv);
     act.appendChild(btn("Kategorie","btn-sm",function(){setCategory(d);}));
     act.appendChild(btn("Betrag","btn-sm",function(){setAmount(d);}));
+    act.appendChild(btn("Auslesen","btn-sm",function(){readReceipt(d);}));
     act.appendChild(btn(d.is_hidden?"Einblenden":"Verbergen","btn-sm",function(){toggleHidden(d);}));
     act.appendChild(btn("Loeschen","btn-sm btn-danger",function(){softDelete(d);}));
   }
@@ -266,6 +267,67 @@ async function hardDelete(d){
   await supa().storage.from("documents").remove([d.storage_path]);
   var r=await supa().from("documents").delete().eq("id",d.id);
   if(r.error)msg("Fehler: "+r.error.message,true); else {msg("Endgueltig geloescht."); loadDocs();}
+}
+
+// ===== Lokaler Beleg-Helfer: liest Typ + Betrag aus (PDF-Text zuerst, tesseract.js-OCR-Fallback) =====
+function loadScript(src,g){return new Promise(function(res,rej){ if(g&&window[g])return res(); var s=el("script"); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); });}
+function blobToImage(blob){return new Promise(function(res,rej){var u=URL.createObjectURL(blob);var im=new Image();im.onload=function(){URL.revokeObjectURL(u);res(im);};im.onerror=rej;im.src=u;});}
+async function ocrCanvas(cv){
+  await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js","Tesseract");
+  var r=await window.Tesseract.recognize(cv,"deu+eng");
+  return (r&&r.data&&r.data.text)||"";
+}
+async function extractText(blob,name){
+  var isPdf=/\.pdf$/i.test(name||"")||blob.type==="application/pdf";
+  if(isPdf){
+    await loadScript("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js","pdfjsLib");
+    var L=window.pdfjsLib; L.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    var buf=await blob.arrayBuffer();
+    var pdf=await L.getDocument({data:buf}).promise;
+    var text="";
+    for(var i=1;i<=pdf.numPages;i++){ var pg=await pdf.getPage(i); var tc=await pg.getTextContent(); text+=tc.items.map(function(it){return it.str;}).join(" ")+"\n"; }
+    if(text.replace(/\s/g,"").length>20) return text;         // digitales PDF -> Text vorhanden
+    var p1=await pdf.getPage(1); var vp=p1.getViewport({scale:2});
+    var cv=document.createElement("canvas"); cv.width=vp.width; cv.height=vp.height;
+    await p1.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
+    return await ocrCanvas(cv);
+  }
+  var img=await blobToImage(blob);
+  var c2=document.createElement("canvas"); c2.width=img.naturalWidth||img.width; c2.height=img.naturalHeight||img.height;
+  c2.getContext("2d").drawImage(img,0,0); return await ocrCanvas(c2);
+}
+function classifyDoc(text){
+  var t=(text||"").toLowerCase();
+  if(/tankstelle|diesel|super\s?e?10|super\s?95|benzin|liter|aral|shell|esso|\bjet\b|totalenerg/.test(t))return "Tankbeleg";
+  if(/restaurant|gastst|men[uü]|trinkgeld|speisen|bewirtung|caf[eé]|imbiss|pizzeria/.test(t))return "Restaurantbeleg";
+  if(/hotel|übernacht|zimmer\s?nr|logis/.test(t))return "Hotelbeleg";
+  if(/rechnung|invoice|ust-?id|umsatzsteuer|rechnungsnummer|leistungsdatum|steuernummer/.test(t))return "Rechnung";
+  return "Beleg";
+}
+function parseAmt(s){ s=String(s).replace(/\s/g,""); s=s.replace(/\.(?=\d{3}(\D|$))/g,""); s=s.replace(",","."); return Number(s); }
+function extractAmount(text){
+  var t=text||"", m, out=[];
+  var re=/(?:summe|gesamt|total|betrag|zu\s?zahlen|brutto|endbetrag)[^0-9\-]{0,18}(\d{1,3}(?:[.\s]\d{3})*[.,]\d{2})/gi;
+  while((m=re.exec(t))){ var v=parseAmt(m[1]); if(!isNaN(v))out.push(v); }
+  if(out.length) return Math.max.apply(null,out);
+  var re2=/(\d{1,3}(?:[.\s]\d{3})*[.,]\d{2})/g;
+  while((m=re2.exec(t))){ var v2=parseAmt(m[1]); if(!isNaN(v2))out.push(v2); }
+  return out.length?Math.max.apply(null,out):null;
+}
+async function readReceipt(d){
+  msg("Lese Beleg „"+d.name+"“ … (beim ersten Foto lädt kurz das OCR-Paket)");
+  try{
+    var r=await supa().storage.from("documents").download(d.storage_path);
+    if(r.error){msg("Datei-Fehler: "+r.error.message,true);return;}
+    var text=await extractText(r.data,d.name);
+    var cat=classifyDoc(text), amt=extractAmount(text);
+    var upd={}; if(cat)upd.category=cat; if(amt!=null)upd.amount=amt;
+    if(!Object.keys(upd).length){ msg("Nichts erkannt – bitte Typ/Betrag manuell setzen.",true); return; }
+    var u=await supa().from("documents").update(upd).eq("id",d.id);
+    if(u.error){msg("Speichern-Fehler: "+u.error.message,true);return;}
+    msg("Vorschlag: "+(cat||"?")+(amt!=null?(" · "+amt.toFixed(2)+" €"):"")+" — bitte prüfen/korrigieren.");
+    loadDocs();
+  }catch(e){ msg("Auslesen fehlgeschlagen: "+String(e&&e.message||e),true); }
 }
 
 window.MPDMS={ open:open };
