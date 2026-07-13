@@ -111,17 +111,19 @@ function btn(txt,cls,fn){var b=el("button","btn "+cls,txt); b.onclick=fn; return
 /* ---------- Aktionen ---------- */
 async function doUpload(files){
   var tid=await ensureTenant(); if(!tid){msg("Firma nicht ermittelt.",true);return;}
-  var u=MP().user, done=0;
+  var u=MP().user, done=0, errs=[];
   for(var i=0;i<files.length;i++){
     var f=files[i]; msg("Lade hoch ("+(i+1)+"/"+files.length+"): "+f.name+" ...");
     var safe=f.name.replace(/[^A-Za-z0-9._-]+/g,"_"); var path=tid+"/"+uuid()+"_"+safe;
     var upr=await supa().storage.from("documents").upload(path,f,{upsert:false});
-    if(upr.error){msg("Upload-Fehler bei "+f.name+": "+upr.error.message,true);continue;}
+    if(upr.error){errs.push("Storage: "+(upr.error.message||JSON.stringify(upr.error)));continue;}
     var ins=await supa().from("documents").insert({tenant_id:tid, owner:u.id, name:f.name, storage_path:path, size_bytes:f.size, folder_id:S.folder||null});
-    if(ins.error){msg("Speichern-Fehler: "+ins.error.message,true);continue;}
+    if(ins.error){errs.push("DB: "+(ins.error.message||JSON.stringify(ins.error)));continue;}
     done++;
   }
-  msg(done+" Dokument(e) hochgeladen."); loadDocs();
+  if(errs.length){ msg(done+" ok, "+errs.length+" Fehler -> "+errs[0], true); }
+  else { msg(done+" Dokument(e) hochgeladen."); }
+  loadDocs();
 }
 async function download(d){
   msg("Lade herunter ...");
