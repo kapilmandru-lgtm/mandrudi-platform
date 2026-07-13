@@ -5,6 +5,7 @@
 var S={ folder:"", trash:false, showHidden:false, q:"", group:"" };
 var folders=[];          // {id,name}
 var currentRows=[];      // aktuell angezeigte Dokumente
+var selected=new Set();  // ausgewählte Dokument-IDs (Mehrfachauswahl)
 
 function el(tag,cls,txt){var e=document.createElement(tag); if(cls)e.className=cls; if(txt!=null)e.textContent=txt; return e;}
 function MP(){return window.MP||{};}
@@ -53,6 +54,8 @@ function open(){
   [up,fileIn,nf,fsel,zip,search,grp,hidW,trash].forEach(function(x){bar.appendChild(x);});
   root.appendChild(bar);
   var m=el("div","dms-msg",""); m.id="dms-msg"; m.setAttribute("role","status"); root.appendChild(m);
+  selected=new Set();
+  var selbar=el("div","dms-selbar"); selbar.id="dms-selbar"; root.appendChild(selbar);
   var list=el("div","dms-list"); list.id="dms-list"; root.appendChild(list);
 
   loadFolders().then(loadDocs);
@@ -74,6 +77,7 @@ async function newFolder(){
 
 /* ---------- Dokumente laden ---------- */
 async function loadDocs(){
+  selected.clear();
   var list=document.getElementById("dms-list"); if(!list)return; list.textContent="Laedt ...";
   var qy=supa().from("documents").select("*").order("created_at",{ascending:false});
   if(S.trash){ qy=qy.not("deleted_at","is",null); }
@@ -98,9 +102,50 @@ function renderDocs(rows){
   } else {
     rows.forEach(function(d){ list.appendChild(docRow(d)); });
   }
+  updateSelBar();
+}
+// Mehrfachauswahl-Leiste (Alle auswählen + Sammel-Verschieben)
+function updateSelBar(){
+  var sb=document.getElementById("dms-selbar"); if(!sb)return; sb.innerHTML="";
+  if(S.trash || !currentRows.length) return;
+  var allW=el("label","dms-chk"); var all=el("input"); all.type="checkbox";
+  all.checked = selected.size>0 && selected.size===currentRows.length;
+  all.onchange=function(){ if(all.checked){currentRows.forEach(function(d){selected.add(d.id);});} else {selected.clear();} renderDocs(currentRows); };
+  allW.appendChild(all); allW.appendChild(el("span",null,"Alle auswählen")); sb.appendChild(allW);
+  if(selected.size>0){
+    sb.appendChild(el("span","dms-selcount",selected.size+" ausgewählt"));
+    var fsel=el("select","dms-sel"); fsel.id="dms-bulk-folder";
+    fsel.appendChild(new Option("In Ordner verschieben...",""));
+    folders.forEach(function(f){fsel.appendChild(new Option(f.name,f.id));});
+    fsel.appendChild(new Option("+ Neuer Ordner...","__new"));
+    sb.appendChild(fsel);
+    sb.appendChild(btn("Verschieben","btn-sm btn-primary",bulkMove));
+    sb.appendChild(btn("Auswahl aufheben","btn-sm",function(){selected.clear();renderDocs(currentRows);}));
+  }
+}
+async function bulkMove(){
+  if(!selected.size)return;
+  var sel=document.getElementById("dms-bulk-folder"); var val=sel?sel.value:"";
+  var target;
+  if(val==="__new"){
+    var name=prompt("Name des neuen Ordners:"); if(!name)return;
+    var tid=await ensureTenant(); if(!tid){msg("Firma nicht ermittelt.",true);return;}
+    var r=await supa().from("folders").insert({tenant_id:tid,name:name}).select("id").single();
+    if(r.error){msg("Fehler: "+r.error.message,true);return;}
+    target=r.data.id; await loadFolders();
+  } else { target=val||null; }
+  var ids=[]; selected.forEach(function(id){ids.push(id);});
+  var r2=await supa().from("documents").update({folder_id:target}).in("id",ids);
+  if(r2.error){msg("Fehler: "+r2.error.message,true);return;}
+  msg(ids.length+" Dokument(e) verschoben."); selected.clear(); loadDocs();
 }
 function docRow(d){
   var row=el("div","doc"+(d.is_hidden?" doc-hidden":""));
+  if(!S.trash){
+    var cb=el("input"); cb.type="checkbox"; cb.className="doc-check"; cb.checked=selected.has(d.id);
+    cb.onchange=function(){ if(cb.checked)selected.add(d.id); else selected.delete(d.id); updateSelBar(); };
+    row.appendChild(cb);
+  }
   var main=el("div","doc-main");
   var nm=el("div","doc-name"); nm.appendChild(el("b",null,d.name)); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); main.appendChild(nm);
   var meta=[]; if(d.category)meta.push(d.category); if(d.folder_id)meta.push("Ordner: "+folderName(d.folder_id)); if(d.size_bytes!=null)meta.push(fmtSize(d.size_bytes)); meta.push(fmtDate(d.created_at));

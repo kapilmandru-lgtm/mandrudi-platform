@@ -133,6 +133,9 @@ h1,h2{letter-spacing:-.02em}
 .dms-list{display:flex;flex-direction:column;gap:8px;margin-top:6px}
 .doc-group{font-weight:700;color:var(--accent-600);font-size:13px;letter-spacing:.01em;margin:16px 0 2px;padding-bottom:5px;border-bottom:1px solid var(--line)}
 .doc-group:first-child{margin-top:0}
+.dms-selbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:10px 0 2px}
+.dms-selcount{font-size:13px;font-weight:700;color:var(--accent-600)}
+.doc-check{flex:none;width:18px;height:18px;cursor:pointer;accent-color:var(--accent)}
 .doc{display:flex;align-items:center;gap:12px;justify-content:space-between;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow)}
 .doc-hidden{opacity:.6}
 .doc-main{min-width:0;flex:1}
