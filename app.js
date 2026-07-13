@@ -144,7 +144,7 @@ function enterApp(email,user){
 }
 // Gemeinsame API für die Module (DMS, PM, …)
 function initMP(){
-  window.MP={supa:supa, user:currentUser, tenantId:null, t:t, get lang(){return lang;}};
+  window.MP={supa:supa, user:currentUser, tenantId:null, t:t, get lang(){return lang;}, requireLogin:function(m){showAuth(m||"Sitzung abgelaufen – bitte neu anmelden.");}};
   if(supa && currentUser){
     supa.from("profiles").select("tenant_id").eq("id",currentUser.id).single().then(function(r){
       if(r&&r.data){window.MP.tenantId=r.data.tenant_id;}
@@ -152,6 +152,12 @@ function initMP(){
   }
 }
 function authMsg(msg,err){var m=document.getElementById("authMsg");m.textContent=msg||"";m.className="auth-msg"+(err?" err":"");}
+// Login-Screen zeigen (z. B. wenn die Sitzung abgelaufen ist)
+function showAuth(message){
+  document.getElementById("app").classList.add("hidden");
+  document.getElementById("auth").classList.remove("hidden");
+  authMsg(message||"", !!message);
+}
 
 function loadScript(src){return new Promise(function(res,rej){var s=document.createElement("script");s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s);});}
 
@@ -165,6 +171,11 @@ async function initAuth(){
       supa=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON);
       var ses=await supa.auth.getSession();
       if(ses.data.session){enterApp(ses.data.session.user.email, ses.data.session.user);}
+      // Sitzung verloren (abgelaufen/abgemeldet) -> Login-Screen statt stiller Fehler
+      supa.auth.onAuthStateChange(function(event,session){
+        var appVisible=!document.getElementById("app").classList.contains("hidden");
+        if(!session && appVisible){ showAuth("Sitzung abgelaufen – bitte neu anmelden."); }
+      });
       noteEl.textContent="";
     }catch(e){DEMO=true; noteEl.textContent="Supabase nicht erreichbar – Demo-Modus.";}
   }else{
@@ -186,9 +197,7 @@ async function initAuth(){
   };
   document.getElementById("btnLogout").onclick=async function(){
     if(supa){try{await supa.auth.signOut();}catch(e){}}
-    document.getElementById("app").classList.add("hidden");
-    document.getElementById("auth").classList.remove("hidden");
-    authMsg("");
+    showAuth("");
   };
 }
 function val(id){return (document.getElementById(id)||{}).value||"";}
