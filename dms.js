@@ -11,7 +11,7 @@ function el(tag,cls,txt){var e=document.createElement(tag); if(cls)e.className=c
 function MP(){return window.MP||{};}
 function supa(){return MP().supa;}
 function msg(t,err){var m=document.getElementById("dms-msg"); if(m){m.textContent=t||""; m.className="dms-msg"+(err?" err":"");}}
-function isAuthErr(err){var m=((err&&err.message)||err||"")+""; return /permission denied|jwt|not authenticated|auth session|session.*missing|token/i.test(m);}
+function isAuthErr(err){var m=((err&&err.message)||err||"")+""; return /permission denied|jwt|not authenticated|auth session|session.*missing|unauthorized|row-level|\b401\b|\b403\b/i.test(m);}
 function handleErr(err,fallback){ if(isAuthErr(err)){ if(MP().requireLogin)MP().requireLogin(); return true; } msg(fallback+((err&&err.message)?(": "+err.message):""),true); return false; }
 function uuid(){try{return crypto.randomUUID();}catch(e){return Date.now()+"_"+Math.floor(Math.random()*1e9);}}
 function fmtSize(b){ if(b==null)return""; if(b<1024)return b+" B"; if(b<1048576)return (b/1024).toFixed(0)+" KB"; return (b/1048576).toFixed(1)+" MB"; }
@@ -162,7 +162,11 @@ async function bulkRead(){
     msg("Lese Beleg "+(i+1)+"/"+docs.length+" … (lokal, beim ersten Foto lädt kurz das OCR-Paket)");
     try{ await processDoc(docs[i]); read++; }catch(e){ lastErr=e; }
   }
-  if(read===0 && isAuthErr(lastErr)){ MP().requireLogin&&MP().requireLogin(); loadDocs(); return; }
+  if(read===0 && docs.length>0){
+    if(isAuthErr(lastErr)){ MP().requireLogin&&MP().requireLogin(); loadDocs(); return; }
+    msg("Auslesen fehlgeschlagen (0/"+docs.length+"): "+String((lastErr&&lastErr.message)||lastErr||"unbekannter Fehler"),true);
+    loadDocs(); return;
+  }
   msg(read+"/"+docs.length+" ausgelesen & umbenannt"+(read<docs.length?" (Rest nicht erkannt – bitte Namen anklicken)":"")+".");
   selected.clear(); loadDocs();
 }
@@ -233,7 +237,11 @@ async function doUpload(files){
     msg("Lese Beleg "+(j+1)+"/"+newDocs.length+" … (lokal, beim ersten Foto lädt kurz das OCR-Paket)");
     try{ await processDoc(newDocs[j]); read++; }catch(e){ lastErr=e; }
   }
-  if(read===0 && newDocs.length>0 && isAuthErr(lastErr)){ MP().requireLogin&&MP().requireLogin(); loadDocs(); return; }
+  if(read===0 && newDocs.length>0){
+    if(isAuthErr(lastErr)){ MP().requireLogin&&MP().requireLogin(); loadDocs(); return; }
+    msg(done+" hochgeladen, aber Auslesen fehlgeschlagen: "+String((lastErr&&lastErr.message)||lastErr||"unbekannt"),true);
+    loadDocs(); return;
+  }
   msg(done+" hochgeladen · "+read+" automatisch benannt"+(read<newDocs.length?" (Rest bitte per „Auslesen“)":"")+". Bitte Vorschläge prüfen.");
   loadDocs();
 }
