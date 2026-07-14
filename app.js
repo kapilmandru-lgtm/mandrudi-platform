@@ -86,6 +86,9 @@ function setLang(l){
   document.querySelectorAll("[data-i18n-ph]").forEach(function(el){var v=t(el.getAttribute("data-i18n-ph"));if(v!=null)el.setAttribute("placeholder",v);});
   var s=document.getElementById("langSel"); if(s)s.value=l;
   renderTools();
+  // Offene Modul-Ansichten neu rendern (z. B. Beleg-Typen in neuer Sprache)
+  var dv=document.getElementById("view-dms");
+  if(dv && !dv.classList.contains("hidden") && window.MPDMS)window.MPDMS.open();
 }
 
 /* ---- Theme ---- */

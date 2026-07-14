@@ -3,9 +3,11 @@
 "use strict";
 
 var S={ folder:"", trash:false, showHidden:false, q:"", group:"" };
-var folders=[];          // {id,name}
+var folders=[];          // {id,name,parent_id}
 var currentRows=[];      // aktuell angezeigte Dokumente
 var selected=new Set();  // ausgewählte Dokument-IDs (Mehrfachauswahl)
+var expanded=new Set();  // im Baum aufgeklappte Ordner
+var docCounts={}, unfiledCount=0; // Beleg-Anzahl je Ordner / ohne Ordner (ohne Papierkorb)
 
 function el(tag,cls,txt){var e=document.createElement(tag); if(cls)e.className=cls; if(txt!=null)e.textContent=txt; return e;}
 function MP(){return window.MP||{};}
@@ -21,6 +23,67 @@ function fmtDateObj(dt){try{return dt.toLocaleDateString();}catch(e){return"";}}
 function parseNameDate(name){ var m=/(\d{2})\.(\d{2})\.(\d{4})/.exec(name||""); if(!m)return null; var dd=+m[1],mo=+m[2],y=+m[3]; if(mo<1||mo>12||dd<1||dd>31)return null; var dt=new Date(y,mo-1,dd); return isNaN(dt.getTime())?null:dt; }
 function docDate(d){ return parseNameDate(d.name) || new Date(d.created_at); }
 function folderName(id){for(var i=0;i<folders.length;i++)if(folders[i].id===id)return folders[i].name; return "";}
+function folderById(id){for(var i=0;i<folders.length;i++)if(folders[i].id===id)return folders[i]; return null;}
+function childrenOf(pid){ return folders.filter(function(f){ return (f.parent_id||null)===(pid||null); }); }
+function folderPath(id){ var path=[], f=folderById(id), guard=0; while(f&&guard++<30){ path.unshift(f); f=f.parent_id?folderById(f.parent_id):null; } return path; }
+// Ordner-Liste fuer Dropdowns: Unterordner eingerueckt (Tiefe sichtbar)
+function folderOptions(){
+  var out=[];
+  (function walk(pid,depth){
+    childrenOf(pid).forEach(function(f){
+      var pre=""; for(var i=0;i<depth;i++)pre+="  ";
+      out.push({id:f.id, label:(depth?pre+"↳ ":"")+f.name});
+      walk(f.id,depth+1);
+    });
+  })(null,0);
+  return out;
+}
+
+/* ---------- Beleg-Typen: kanonisch DE in der DB, Anzeige in App-Sprache ---------- */
+var TYPE_LABELS={
+  "Tankbeleg":       {de:"Tankbeleg",       en:"Fuel receipt",       fr:"Reçu carburant",   es:"Recibo combustible", it:"Scontrino carburante",  ro:"Bon combustibil"},
+  "Restaurantbeleg": {de:"Restaurantbeleg", en:"Restaurant receipt", fr:"Reçu restaurant",  es:"Recibo restaurante", it:"Scontrino ristorante",  ro:"Bon restaurant"},
+  "Hotelbeleg":      {de:"Hotelbeleg",      en:"Hotel receipt",      fr:"Reçu hôtel",  es:"Recibo hotel",       it:"Scontrino hotel",       ro:"Bon hotel"},
+  "Rechnung":        {de:"Rechnung",        en:"Invoice",            fr:"Facture",               es:"Factura",            it:"Fattura",               ro:"Factură"},
+  "Beleg":           {de:"Beleg",           en:"Receipt",            fr:"Reçu",             es:"Recibo",             it:"Ricevuta",              ro:"Bon"}
+};
+var TYPE_RE=/^(Tankbeleg|Restaurantbeleg|Hotelbeleg|Rechnung|Beleg)(?=$|[ .])/;
+function curLang(){ return MP().lang||"de"; }
+function typeLabel(key){ var e=TYPE_LABELS[key]; if(!e)return key; return e[curLang()]||key; }
+// Anzeige-Name: deutscher Typ-Praefix (kanonisch in DB) -> Label in aktueller Sprache
+function displayName(name){ var m=TYPE_RE.exec(name||""); if(!m)return name||""; return typeLabel(m[1])+String(name).slice(m[1].length); }
+// Nutzer-Eingabe (evtl. uebersetzter Typ-Praefix) -> kanonischer DB-Name (DE)
+function canonicalName(input){
+  var s=String(input||"").trim(); if(!s)return s;
+  var bestKey=null, bestLen=0;
+  Object.keys(TYPE_LABELS).forEach(function(key){
+    var langs=TYPE_LABELS[key];
+    Object.keys(langs).forEach(function(lg){
+      var lab=langs[lg], nx=s.charAt(lab.length);
+      if(lab.length>bestLen && s.slice(0,lab.length).toLowerCase()===lab.toLowerCase() && (nx===""||nx===" "||nx===".")){ bestKey=key; bestLen=lab.length; }
+    });
+  });
+  return bestKey? bestKey+s.slice(bestLen) : s;
+}
+// Kategorie-Eingabe: uebersetztes Label -> deutscher Schluessel (sonst unveraendert)
+function canonicalType(v){
+  var s=String(v||"").trim(); if(!s)return s; var out=s;
+  Object.keys(TYPE_LABELS).forEach(function(key){
+    var langs=TYPE_LABELS[key];
+    Object.keys(langs).forEach(function(lg){ if(langs[lg].toLowerCase()===s.toLowerCase())out=key; });
+  });
+  return out;
+}
+// Suchbegriff um deutsche Typ-Namen ergaenzen (DB-Namen sind DE): "fuel" findet "Tankbeleg"
+function searchTerms(q){
+  var terms=[q], ql=q.toLowerCase();
+  Object.keys(TYPE_LABELS).forEach(function(key){
+    var langs=TYPE_LABELS[key], hit=false;
+    Object.keys(langs).forEach(function(lg){ if(langs[lg].toLowerCase().indexOf(ql)>=0)hit=true; });
+    if(hit&&terms.indexOf(key)<0)terms.push(key);
+  });
+  return terms;
+}
 
 async function ensureTenant(){
   var m=MP(); if(m.tenantId)return m.tenantId;
@@ -33,22 +96,26 @@ async function ensureTenant(){
 function open(){
   var root=document.getElementById("view-dms"); if(!root)return;
   root.innerHTML="";
-  root.appendChild(el("h2",null,"Dokumente"));
+  var tt=MP().t; root.appendChild(el("h2",null,(tt&&tt("nav_dms"))||"Dokumente"));
 
   if(!supa()||!MP().user){
     root.appendChild(el("p","lead","Bitte melde dich an, um Dokumente zu verwalten. Im Demo-Modus wird nur die Oberflaeche gezeigt."));
     return;
   }
 
+  var wrap=el("div","dms-wrap");
+  var tree=el("div","dms-tree"); tree.id="dms-tree";
+  var main=el("div","dms-main");
+  wrap.appendChild(tree); wrap.appendChild(main);
+
   var bar=el("div","dms-bar");
   var up=el("button","btn btn-primary","Hochladen"); var fileIn=el("input"); fileIn.type="file"; fileIn.multiple=true; fileIn.style.display="none";
   up.onclick=function(){fileIn.click();}; fileIn.onchange=function(){ var fs=Array.prototype.slice.call(fileIn.files); fileIn.value=""; if(fs.length)doUpload(fs); };
-  var nf=el("button","btn","+ Ordner"); nf.onclick=newFolder;
-  var fsel=el("select","dms-sel"); fsel.id="dms-folder"; fsel.onchange=function(){S.folder=fsel.value; loadDocs();};
+  var nf=el("button","btn","+ Ordner"); nf.title="Neuen Ordner im aktuellen Ordner anlegen"; nf.onclick=newFolder;
   var zip=el("button","btn","Ordner als ZIP"); zip.onclick=downloadZip;
   var search=el("input","dms-search"); search.placeholder="Suchen..."; search.oninput=function(){S.q=search.value.trim(); clearTimeout(search._t); search._t=setTimeout(loadDocs,250);};
   var hidW=el("label","dms-chk"); var hid=el("input"); hid.type="checkbox"; hid.onchange=function(){S.showHidden=hid.checked; loadDocs();}; hidW.appendChild(hid); hidW.appendChild(el("span",null,"Verborgene"));
-  var trash=el("button","btn","Papierkorb"); trash.id="dms-trashbtn"; trash.onclick=function(){S.trash=!S.trash; trash.classList.toggle("btn-primary",S.trash); trash.textContent=S.trash?"Zurueck":"Papierkorb"; loadDocs();};
+  var trash=el("button","btn","Papierkorb"); trash.id="dms-trashbtn"; trash.onclick=function(){S.trash=!S.trash; trash.classList.toggle("btn-primary",S.trash); trash.textContent=S.trash?"Zurueck":"Papierkorb"; loadDocs(); renderCrumb();};
 
   var grp=el("select","dms-sel"); grp.id="dms-group";
   grp.appendChild(new Option("Sortieren: keine",""));
@@ -59,28 +126,117 @@ function open(){
 
   var ana=el("button","btn","Analyse"); ana.onclick=analyze;
 
-  [up,fileIn,nf,fsel,zip,ana,search,grp,hidW,trash].forEach(function(x){bar.appendChild(x);});
-  root.appendChild(bar);
-  var m=el("div","dms-msg",""); m.id="dms-msg"; m.setAttribute("role","status"); root.appendChild(m);
+  [up,fileIn,nf,zip,ana,search,grp,hidW,trash].forEach(function(x){bar.appendChild(x);});
+  main.appendChild(bar);
+  var m=el("div","dms-msg",""); m.id="dms-msg"; m.setAttribute("role","status"); main.appendChild(m);
   selected=new Set();
-  var selbar=el("div","dms-selbar"); selbar.id="dms-selbar"; root.appendChild(selbar);
-  var list=el("div","dms-list"); list.id="dms-list"; root.appendChild(list);
+  var selbar=el("div","dms-selbar"); selbar.id="dms-selbar"; main.appendChild(selbar);
+  var crumb=el("div","dms-crumb"); crumb.id="dms-crumb"; main.appendChild(crumb);
+  var list=el("div","dms-list"); list.id="dms-list"; main.appendChild(list);
+  root.appendChild(wrap);
 
   loadFolders().then(loadDocs);
 }
 
 /* ---------- Ordner ---------- */
 async function loadFolders(){
-  var r=await supa().from("folders").select("id,name").order("name");
+  var r=await supa().from("folders").select("id,name,parent_id").order("name");
   folders=(r&&r.data)||[];
-  var sel=document.getElementById("dms-folder"); if(sel){ sel.innerHTML=""; sel.appendChild(new Option("Alle Ordner","")); folders.forEach(function(f){sel.appendChild(new Option(f.name,f.id));}); sel.value=S.folder; }
+  // Falls der gewaehlte Ordner nicht mehr existiert (geloescht), zurueck zur Hauptliste
+  if(S.folder && !folderById(S.folder))S.folder="";
+  renderTree();
 }
 async function newFolder(){
-  var name=prompt("Name des neuen Ordners:"); if(!name)return;
+  var here=S.folder?(" (in \""+folderName(S.folder)+"\")"):"";
+  var name=prompt("Name des neuen Ordners"+here+":"); if(!name)return;
   var tid=await ensureTenant(); if(!tid){msg("Firma nicht ermittelt.",true);return;}
-  var r=await supa().from("folders").insert({tenant_id:tid, name:name});
+  var r=await supa().from("folders").insert({tenant_id:tid, name:name, parent_id:S.folder||null});
   if(r.error){msg("Fehler: "+r.error.message,true);return;}
+  if(S.folder)expanded.add(S.folder);
   await loadFolders(); msg("Ordner angelegt.");
+}
+async function renameFolder(f){
+  var v=prompt("Neuer Ordnername:",f.name); if(v===null||!v.trim())return;
+  var r=await supa().from("folders").update({name:v.trim()}).eq("id",f.id);
+  if(r.error){msg("Fehler: "+r.error.message,true);return;}
+  await loadFolders(); renderCrumb(); msg("Ordner umbenannt.");
+}
+async function deleteFolder(f){
+  var kids=childrenOf(f.id).length;
+  if(!confirm("Ordner \""+f.name+"\" loeschen?"+(kids?" Unterordner werden mitgeloescht.":"")+" Enthaltene Belege landen wieder in der Hauptliste."))return;
+  var r=await supa().from("folders").delete().eq("id",f.id);
+  if(r.error){msg("Fehler: "+r.error.message,true);return;}
+  if(S.folder===f.id)S.folder="";
+  await loadFolders(); loadDocs(); msg("Ordner geloescht.");
+}
+
+/* ---------- Ordner-Baum ---------- */
+async function loadCounts(){
+  try{
+    var r=await supa().from("documents").select("folder_id").is("deleted_at",null);
+    docCounts={}; unfiledCount=0;
+    ((r&&r.data)||[]).forEach(function(row){ if(row.folder_id)docCounts[row.folder_id]=(docCounts[row.folder_id]||0)+1; else unfiledCount++; });
+  }catch(e){}
+}
+function selectFolder(id){
+  S.folder=id||"";
+  if(S.trash){ S.trash=false; var tb=document.getElementById("dms-trashbtn"); if(tb){tb.classList.remove("btn-primary"); tb.textContent="Papierkorb";} }
+  folderPath(S.folder).forEach(function(f){ expanded.add(f.id); }); // Pfad aufklappen
+  renderTree(); loadDocs();
+}
+function treeRow(f){
+  var kids=childrenOf(f.id);
+  var row=el("div","tree-item"+(S.folder===f.id?" active":""));
+  var tg=el("span","tree-toggle",kids.length?(expanded.has(f.id)?"▾":"▸"):" ");
+  if(kids.length){ tg.title=expanded.has(f.id)?"Zuklappen":"Aufklappen"; tg.onclick=function(ev){ ev.stopPropagation(); if(expanded.has(f.id))expanded.delete(f.id); else expanded.add(f.id); renderTree(); }; }
+  row.appendChild(tg);
+  row.appendChild(el("span","tree-name",f.name));
+  if(S.folder===f.id){
+    var acts=el("span","tree-act");
+    var rn=el("button","tree-btn","✎"); rn.title="Ordner umbenennen"; rn.onclick=function(ev){ev.stopPropagation(); renameFolder(f);};
+    var dl=el("button","tree-btn","×"); dl.title="Ordner loeschen"; dl.onclick=function(ev){ev.stopPropagation(); deleteFolder(f);};
+    acts.appendChild(rn); acts.appendChild(dl); row.appendChild(acts);
+  }
+  var n=docCounts[f.id]||0; if(n)row.appendChild(el("span","tree-count",String(n)));
+  row.onclick=function(){ selectFolder(f.id); };
+  return {row:row, kids:kids};
+}
+function renderTree(){
+  var tree=document.getElementById("dms-tree"); if(!tree)return; tree.innerHTML="";
+  tree.appendChild(el("div","tree-head","Ordner"));
+  var rootRow=el("div","tree-item tree-root"+((!S.folder&&!S.trash)?" active":""));
+  rootRow.appendChild(el("span","tree-toggle"," "));
+  rootRow.appendChild(el("span","tree-name","Hauptliste"));
+  if(unfiledCount)rootRow.appendChild(el("span","tree-count",String(unfiledCount)));
+  rootRow.title="Belege ohne Ordner";
+  rootRow.onclick=function(){ selectFolder(""); };
+  tree.appendChild(rootRow);
+  (function walk(pid,container){
+    childrenOf(pid).forEach(function(f){
+      var t=treeRow(f);
+      container.appendChild(t.row);
+      if(t.kids.length&&expanded.has(f.id)){ var kb=el("div","tree-kids"); container.appendChild(kb); walk(f.id,kb); }
+    });
+  })(null,tree);
+  if(!folders.length)tree.appendChild(el("div","tree-empty","Noch keine Ordner – „+ Ordner“ legt einen an."));
+}
+function renderCrumb(){
+  var c=document.getElementById("dms-crumb"); if(!c)return; c.innerHTML="";
+  if(S.trash){ c.appendChild(el("span","crumb-cur","Papierkorb")); return; }
+  if(!S.folder){
+    c.appendChild(el("span","crumb-cur","Hauptliste"));
+    c.appendChild(el("span","crumb-hint", S.q?" · Suche in allen Ordnern":" · Belege ohne Ordner"));
+    return;
+  }
+  var home=el("a","crumb-link","Hauptliste"); home.href="#"; home.onclick=function(e){e.preventDefault(); selectFolder("");};
+  c.appendChild(home);
+  var path=folderPath(S.folder);
+  path.forEach(function(f,i){
+    c.appendChild(el("span","crumb-sep"," / "));
+    if(i===path.length-1){ c.appendChild(el("span","crumb-cur",f.name)); }
+    else{ var a=el("a","crumb-link",f.name); a.href="#"; a.onclick=(function(id){return function(e){e.preventDefault(); selectFolder(id);};})(f.id); c.appendChild(a); }
+  });
+  if(S.q)c.appendChild(el("span","crumb-hint"," · Suche im Ordner"));
 }
 
 /* ---------- Dokumente laden ---------- */
@@ -88,14 +244,23 @@ async function loadDocs(){
   selected.clear();
   var list=document.getElementById("dms-list"); if(!list)return; list.textContent="Laedt ...";
   var qy=supa().from("documents").select("*").order("created_at",{ascending:false});
-  if(S.trash){ qy=qy.not("deleted_at","is",null); }
-  else { qy=qy.is("deleted_at",null); if(!S.showHidden)qy=qy.eq("is_hidden",false); }
-  if(S.folder)qy=qy.eq("folder_id",S.folder);
-  if(S.q)qy=qy.ilike("name","%"+S.q+"%");
+  if(S.trash){ qy=qy.not("deleted_at","is",null); } // Papierkorb ist global (kein Ordner-Filter)
+  else {
+    qy=qy.is("deleted_at",null); if(!S.showHidden)qy=qy.eq("is_hidden",false);
+    if(S.folder)qy=qy.eq("folder_id",S.folder);
+    else if(!S.q)qy=qy.is("folder_id",null); // Hauptliste = nur Belege ohne Ordner; Suche ohne Ordner sucht ueberall
+  }
+  if(S.q){
+    var terms=searchTerms(S.q);
+    if(terms.length>1 && !/[,()]/.test(S.q))qy=qy.or(terms.map(function(t){return "name.ilike.%"+t+"%";}).join(","));
+    else qy=qy.ilike("name","%"+S.q+"%");
+  }
   var r=await qy;
   if(r.error){list.textContent=""; handleErr(r.error,"Fehler beim Laden"); return;}
   currentRows=(r.data||[]).slice().sort(function(a,b){ return docDate(b)-docDate(a); }); // nach Beleg-Datum, neueste zuerst
   renderDocs(currentRows);
+  renderCrumb();
+  loadCounts().then(renderTree); // Zaehler im Baum aktuell halten
 }
 
 function renderDocs(rows){
@@ -125,7 +290,8 @@ function updateSelBar(){
     sb.appendChild(el("span","dms-selcount",selected.size+" ausgewählt"));
     var fsel=el("select","dms-sel"); fsel.id="dms-bulk-folder";
     fsel.appendChild(new Option("In Ordner verschieben...",""));
-    folders.forEach(function(f){fsel.appendChild(new Option(f.name,f.id));});
+    fsel.appendChild(new Option("Hauptliste (kein Ordner)","__root"));
+    folderOptions().forEach(function(o){fsel.appendChild(new Option(o.label,o.id));});
     fsel.appendChild(new Option("+ Neuer Ordner...","__new"));
     sb.appendChild(fsel);
     sb.appendChild(btn("Verschieben","btn-sm btn-primary",bulkMove));
@@ -137,14 +303,15 @@ function updateSelBar(){
 async function bulkMove(){
   if(!selected.size)return;
   var sel=document.getElementById("dms-bulk-folder"); var val=sel?sel.value:"";
+  if(!val){msg("Bitte zuerst einen Ziel-Ordner waehlen.",true);return;}
   var target;
   if(val==="__new"){
     var name=prompt("Name des neuen Ordners:"); if(!name)return;
     var tid=await ensureTenant(); if(!tid){msg("Firma nicht ermittelt.",true);return;}
-    var r=await supa().from("folders").insert({tenant_id:tid,name:name}).select("id").single();
+    var r=await supa().from("folders").insert({tenant_id:tid,name:name,parent_id:S.folder||null}).select("id").single();
     if(r.error){msg("Fehler: "+r.error.message,true);return;}
-    target=r.data.id; await loadFolders();
-  } else { target=val||null; }
+    target=r.data.id; if(S.folder)expanded.add(S.folder); await loadFolders();
+  } else { target=(val==="__root")?null:val; }
   var ids=[]; selected.forEach(function(id){ids.push(id);});
   var r2=await supa().from("documents").update({folder_id:target}).in("id",ids);
   if(r2.error){msg("Fehler: "+r2.error.message,true);return;}
@@ -183,8 +350,8 @@ function docRow(d){
     row.appendChild(cb);
   }
   var main=el("div","doc-main doc-clickable"); main.title="Klicken: Beleg anzeigen"; main.onclick=function(){openPreview(d);};
-  var nm=el("div","doc-name"); var nb=el("b","doc-name-b",d.name); nb.onmouseenter=function(){hoverPreview(d,nb);}; nb.onmouseleave=hideHover; nm.appendChild(nb); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); main.appendChild(nm);
-  var meta=[]; if(d.category)meta.push(d.category); if(d.amount!=null)meta.push(Number(d.amount).toFixed(2)+" €"); if(d.folder_id)meta.push("Ordner: "+folderName(d.folder_id)); if(d.size_bytes!=null)meta.push(fmtSize(d.size_bytes)); var pd=parseNameDate(d.name); meta.push(pd?("Beleg: "+fmtDateObj(pd)):("Upload: "+fmtDate(d.created_at)));
+  var nm=el("div","doc-name"); var nb=el("b","doc-name-b",displayName(d.name)); nb.onmouseenter=function(){hoverPreview(d,nb);}; nb.onmouseleave=hideHover; nm.appendChild(nb); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); main.appendChild(nm);
+  var meta=[]; if(d.category)meta.push(typeLabel(d.category)); if(d.amount!=null)meta.push(Number(d.amount).toFixed(2)+" €"); if(d.folder_id&&d.folder_id!==S.folder)meta.push("Ordner: "+folderName(d.folder_id)); if(d.size_bytes!=null)meta.push(fmtSize(d.size_bytes)); var pd=parseNameDate(d.name); meta.push(pd?("Beleg: "+fmtDateObj(pd)):("Upload: "+fmtDate(d.created_at)));
   main.appendChild(el("div","doc-meta",meta.join(" · ")));
   if(d.tags&&d.tags.length)main.appendChild(el("div","doc-tags",d.tags.map(function(t){return "#"+t;}).join(" ")));
   row.appendChild(main);
@@ -195,8 +362,11 @@ function docRow(d){
     act.appendChild(btn("Endgueltig loeschen","btn-sm btn-danger",function(){hardDelete(d);}));
   } else {
     act.appendChild(btn("Download","btn-sm",function(){download(d);}));
-    var mv=el("select","btn-sm dms-move"); mv.appendChild(new Option("Ordner verschieben...","")); folders.forEach(function(f){mv.appendChild(new Option(f.name,f.id));}); if(d.folder_id)mv.value=d.folder_id;
-    mv.onchange=function(){moveFolder(d,mv.value||null);}; act.appendChild(mv);
+    var mv=el("select","btn-sm dms-move"); mv.appendChild(new Option("Ordner verschieben...",""));
+    mv.appendChild(new Option("Hauptliste (kein Ordner)","__root"));
+    folderOptions().forEach(function(o){mv.appendChild(new Option(o.label,o.id));});
+    if(d.folder_id)mv.value=d.folder_id;
+    mv.onchange=function(){ if(!mv.value)return; moveFolder(d, mv.value==="__root"?null:mv.value); }; act.appendChild(mv);
     act.appendChild(btn("Kategorie","btn-sm",function(){setCategory(d);}));
     act.appendChild(btn("Betrag","btn-sm",function(){setAmount(d);}));
     act.appendChild(btn("Auslesen","btn-sm",function(){readReceipt(d);}));
@@ -254,7 +424,7 @@ async function download(d){
   msg("Lade herunter ...");
   var r=await supa().storage.from("documents").download(d.storage_path);
   if(r.error){msg("Download-Fehler: "+r.error.message,true);return;}
-  triggerDownload(r.data,d.name); msg("");
+  triggerDownload(r.data,displayName(d.name)); msg("");
 }
 function triggerDownload(blob,name){
   var url=URL.createObjectURL(blob); var a=el("a"); a.href=url; a.download=name||"datei"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){URL.revokeObjectURL(url);},3000);
@@ -265,14 +435,14 @@ async function downloadZip(){
   msg("Erstelle ZIP aus "+currentRows.length+" Dokument(en) ...");
   try{ await loadJSZip(); }catch(e){ msg("ZIP-Bibliothek konnte nicht geladen werden.",true); return; }
   var zip=new window.JSZip();
-  for(var i=0;i<currentRows.length;i++){ var d=currentRows[i]; var r=await supa().storage.from("documents").download(d.storage_path); if(!r.error)zip.file(d.name,r.data); }
+  for(var i=0;i<currentRows.length;i++){ var d=currentRows[i]; var r=await supa().storage.from("documents").download(d.storage_path); if(!r.error)zip.file(displayName(d.name),r.data); }
   var blob=await zip.generateAsync({type:"blob"});
   triggerDownload(blob,(S.folder?folderName(S.folder):"Dokumente")+".zip"); msg("ZIP heruntergeladen.");
 }
 async function moveFolder(d,fid){ var r=await supa().from("documents").update({folder_id:fid}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs(); }
-async function setCategory(d){ var c=prompt("Kategorie fuer \""+d.name+"\":", d.category||""); if(c===null)return; var r=await supa().from("documents").update({category:c||null}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs(); }
+async function setCategory(d){ var c=prompt("Kategorie fuer \""+displayName(d.name)+"\":", d.category?typeLabel(d.category):""); if(c===null)return; var r=await supa().from("documents").update({category:canonicalType(c)||null}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs(); }
 async function setAmount(d){
-  var v=prompt("Betrag (€) für \""+d.name+"\" – z.B. 149,90 (leer = löschen):", d.amount!=null?String(d.amount).replace(".",","):"");
+  var v=prompt("Betrag (€) für \""+displayName(d.name)+"\" – z.B. 149,90 (leer = löschen):", d.amount!=null?String(d.amount).replace(".",","):"");
   if(v===null)return; v=String(v).replace(/\./g,"").replace(",",".").trim();
   var num=(v==="")?null:Number(v);
   if(num!==null && isNaN(num)){msg("Bitte eine gültige Zahl eingeben.",true);return;}
@@ -287,12 +457,12 @@ async function analyze(){
   msg("Erstelle Excel-Auswertung ...");
   try{ await loadXLSX(); }catch(e){ msg("Excel-Bibliothek konnte nicht geladen werden.",true); return; }
   var data=rows.map(function(d){ return {
-    Name:d.name, Datum:fmtDateObj(docDate(d)), Kategorie:d.category||"",
+    Name:displayName(d.name), Datum:fmtDateObj(docDate(d)), Kategorie:(d.category?typeLabel(d.category):""),
     Ordner:(d.folder_id?folderName(d.folder_id):""), Betrag:(d.amount!=null?Number(d.amount):""), Hochgeladen:fmtDate(d.created_at)
   };});
   var total=0, n=0, byCat={}, byMonth={};
   rows.forEach(function(d){ if(d.amount!=null){ var a=Number(d.amount); total+=a; n++;
-    var c=d.category||"(ohne Kategorie)"; byCat[c]=(byCat[c]||0)+a;
+    var c=d.category?typeLabel(d.category):"(ohne Kategorie)"; byCat[c]=(byCat[c]||0)+a;
     var mo=groupLabel(docDate(d),"month"); byMonth[mo]=(byMonth[mo]||0)+a; }});
   var sum=[["Beleg-Auswertung",""],["Dokumente gesamt",rows.length],["davon mit Betrag",n],["Summe Betrag",round2(total)],["",""],["Summe je Kategorie",""]];
   Object.keys(byCat).forEach(function(k){sum.push([k,round2(byCat[k])]);});
@@ -305,10 +475,10 @@ async function analyze(){
   msg(rows.length+" Belege analysiert · Summe "+round2(total).toFixed(2)+" € · Excel heruntergeladen.");
 }
 async function toggleHidden(d){ var r=await supa().from("documents").update({is_hidden:!d.is_hidden}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs(); }
-async function softDelete(d){ if(!confirm("\""+d.name+"\" in den Papierkorb verschieben?"))return; var r=await supa().from("documents").update({deleted_at:new Date().toISOString()}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else {msg("In den Papierkorb verschoben."); loadDocs();} }
+async function softDelete(d){ if(!confirm("\""+displayName(d.name)+"\" in den Papierkorb verschieben?"))return; var r=await supa().from("documents").update({deleted_at:new Date().toISOString()}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else {msg("In den Papierkorb verschoben."); loadDocs();} }
 async function restore(d){ var r=await supa().from("documents").update({deleted_at:null}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs(); }
 async function hardDelete(d){
-  if(!confirm("\""+d.name+"\" ENDGUELTIG loeschen? Das kann nicht rueckgaengig gemacht werden."))return;
+  if(!confirm("\""+displayName(d.name)+"\" ENDGUELTIG loeschen? Das kann nicht rueckgaengig gemacht werden."))return;
   await supa().storage.from("documents").remove([d.storage_path]);
   var r=await supa().from("documents").delete().eq("id",d.id);
   if(r.error)msg("Fehler: "+r.error.message,true); else {msg("Endgueltig geloescht."); loadDocs();}
@@ -404,7 +574,7 @@ async function processDoc(d){
 }
 async function readReceipt(d){
   msg("Lese Beleg … (beim ersten Foto lädt kurz das OCR-Paket)");
-  try{ var res=await processDoc(d); msg("Erkannt & umbenannt: "+res.name+(res.amount!=null?(" · "+res.amount.toFixed(2)+" €"):"")+" — bitte prüfen."); loadDocs(); }
+  try{ var res=await processDoc(d); msg("Erkannt & umbenannt: "+displayName(res.name)+(res.amount!=null?(" · "+res.amount.toFixed(2)+" €"):"")+" — bitte prüfen."); loadDocs(); }
   catch(e){
     var em=String(e&&e.message||e);
     // Session prüfen, um Rechte- von Anmelde-Problem zu unterscheiden
@@ -414,8 +584,9 @@ async function readReceipt(d){
   }
 }
 async function renameDoc(d){
-  var v=prompt("Neuer Name:", d.name); if(v===null||!v.trim())return;
-  var r=await supa().from("documents").update({name:v.trim()}).eq("id",d.id);
+  var v=prompt("Neuer Name:", displayName(d.name)); if(v===null||!v.trim())return;
+  // Uebersetzter Typ-Praefix wird kanonisch (DE) gespeichert, damit alle Sprachen ihn uebersetzen koennen
+  var r=await supa().from("documents").update({name:canonicalName(v)}).eq("id",d.id);
   if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs();
 }
 
@@ -438,7 +609,7 @@ async function openPreview(d){
   var ov=el("div","dms-modal"), inner=el("div","dms-modal-inner"), bar=el("div","dms-modal-bar");
   function close(){ ov.remove(); document.removeEventListener("keydown",onKey); }
   function onKey(e){ if(e.key==="Escape")close(); }
-  bar.appendChild(el("b",null,d.name));
+  bar.appendChild(el("b",null,displayName(d.name)));
   bar.appendChild(el("span","dms-modal-spacer"));
   bar.appendChild(btn("Umbenennen","btn-sm",function(){ close(); renameDoc(d); }));
   bar.appendChild(btn("Download","btn-sm",function(){ download(d); }));

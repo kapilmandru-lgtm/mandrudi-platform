@@ -10,3 +10,9 @@ Modulare KMU-Plattform (Phase 0 – Gerüst). Statisch (kein Node), Supabase-rea
 - assets/ (Logo, Design-Tokens)
 
 Demo-Modus bis Supabase in config.js eingetragen ist.
+
+## Beleg-Auslesen (OCR) – lokal & remote-fähig
+Das Auslesen (pdf.js + tesseract.js) läuft **client-seitig im Browser des jeweils angemeldeten Nutzers** – nicht auf einem Server und nicht auf einem bestimmten Rechner. Remote-Kollegen können es also überall nutzen; die Datei verlässt dabei nie ihren Browser (DSGVO-freundlich, keine fremde Cloud-KI). Die Bibliotheken werden beim ersten Auslesen einmalig per CDN geladen.
+
+## Beleg-Typen mehrsprachig
+Belegnamen/Kategorien werden **kanonisch auf Deutsch** gespeichert (Tankbeleg/Restaurantbeleg/Hotelbeleg/Rechnung/Beleg) und **bei der Anzeige** in die App-Sprache übersetzt (de/en/fr/es/it/ro) – inkl. Suche („fuel" findet „Tankbeleg") und Umbenennen (übersetzter Präfix wird beim Speichern zurückübersetzt). Keine DB-Migration nötig.
