@@ -403,6 +403,7 @@ function docRow(d){
     act.appendChild(btn("Endgueltig loeschen","btn-sm btn-danger",function(){hardDelete(d);}));
   } else {
     act.appendChild(btn("Download","btn-sm",function(){download(d);}));
+    act.appendChild(btn("Teilen","btn-sm",function(){shareDoc(d);}));
     var mv=el("select","btn-sm dms-move"); mv.appendChild(new Option("Ordner verschieben...",""));
     mv.appendChild(new Option("Hauptliste (kein Ordner)","__root"));
     folderOptions().forEach(function(o){mv.appendChild(new Option(o.label,o.id));});
@@ -470,6 +471,25 @@ async function download(d){
 }
 function triggerDownload(blob,name){
   var url=URL.createObjectURL(blob); var a=el("a"); a.href=url; a.download=name||"datei"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){URL.revokeObjectURL(url);},3000);
+}
+// Per E-Mail teilen: über Outlook. Browser koennen Anhaenge nicht per URL an ein
+// Compose-Fenster uebergeben (gilt fuer jeden Mail-Client) -> Datei wird heruntergeladen
+// und Outlook (Web) mit vorbefuelltem Betreff/Text geoeffnet; Anhaengen bleibt ein
+// manueller letzter Schritt.
+function outlookComposeUrl(subject,body){
+  return "https://outlook.office.com/mail/deeplink/compose?subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(body);
+}
+async function shareDoc(d){
+  msg("Bereite Beleg zum Teilen vor ...");
+  var r=await supa().storage.from("documents").download(d.storage_path);
+  if(r.error){msg("Fehler: "+r.error.message,true);return;}
+  var name=displayName(d.name), blob=r.data;
+  if(isPdfName(d.name) && blob.type!=="application/pdf"){ blob=blob.slice(0,blob.size,"application/pdf"); }
+  triggerDownload(blob,name);
+  var url=outlookComposeUrl("Beleg: "+name,"Im Anhang: "+name+" (bitte soeben heruntergeladene Datei im Outlook-Entwurf anhängen).");
+  var w=window.open(url,"_blank","noopener");
+  if(w){ msg("Datei heruntergeladen – Outlook-Entwurf geöffnet, bitte Datei anhängen."); }
+  else{ msg("Datei heruntergeladen – Popup blockiert, bitte Pop-ups für diese Seite erlauben und „Teilen“ erneut klicken.",true); }
 }
 function loadJSZip(){return new Promise(function(res,rej){ if(window.JSZip)return res(); var s=el("script"); s.src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });}
 async function downloadZip(){
@@ -748,6 +768,7 @@ async function openPreview(d){
   bar.appendChild(el("span","dms-modal-spacer"));
   bar.appendChild(btn("Umbenennen","btn-sm",function(){ close(); renameDoc(d); }));
   bar.appendChild(btn("Download","btn-sm",function(){ download(d); }));
+  bar.appendChild(btn("Teilen","btn-sm",function(){ shareDoc(d); }));
   bar.appendChild(btn("Schließen","btn-sm",close));
   inner.appendChild(bar);
   var body=el("div","dms-modal-body"); body.textContent="Lädt …"; inner.appendChild(body);
