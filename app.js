@@ -150,7 +150,13 @@ function initMP(){
   window.MP={supa:supa, user:currentUser, tenantId:null, t:t, get lang(){return lang;}, requireLogin:function(m){showAuth(m||"Sitzung abgelaufen – bitte neu anmelden.");}};
   if(supa && currentUser){
     supa.from("profiles").select("tenant_id").eq("id",currentUser.id).single().then(function(r){
-      if(r&&r.data){window.MP.tenantId=r.data.tenant_id;}
+      if(r&&r.data){window.MP.tenantId=r.data.tenant_id;return;}
+      // Kein Profil gefunden (Trigger hat's verpasst, oder Alt-Nutzer) -> selbst nachlegen, dann erneut lesen.
+      supa.rpc("ensure_my_profile").then(function(){
+        return supa.from("profiles").select("tenant_id").eq("id",currentUser.id).single();
+      }).then(function(r2){
+        if(r2&&r2.data){window.MP.tenantId=r2.data.tenant_id;}
+      }).catch(function(){});
     }).catch(function(){});
   }
 }

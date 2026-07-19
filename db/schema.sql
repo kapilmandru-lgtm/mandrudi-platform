@@ -28,21 +28,44 @@ returns uuid language sql stable security definer set search_path = public as $$
 $$;
 
 -- ---------- 3) Bei Neuanmeldung automatisch Firma + Profil anlegen ----------
-create or replace function public.handle_new_user()
-returns trigger language plpgsql security definer set search_path = public as $$
+-- Gemeinsame, idempotente Provisionierung: legt Firma+Profil nur an, wenn
+-- noch keins existiert. Wird vom Trigger (Normalfall) UND von der
+-- ensure_my_profile()-RPC (Selbstheilung, falls der Trigger mal nicht griff
+-- oder ein Nutzer aus der Zeit vor diesem Schema stammt) genutzt.
+create or replace function public.provision_profile(p_id uuid, p_email text, p_company text default null)
+returns void language plpgsql security definer set search_path = public as $$
 declare new_tenant uuid;
 begin
+  if exists (select 1 from public.profiles where id = p_id) then
+    return;
+  end if;
   insert into public.tenants (name)
-    values (coalesce(new.raw_user_meta_data->>'company','Mein Unternehmen'))
+    values (coalesce(p_company,'Mein Unternehmen'))
     returning id into new_tenant;
   insert into public.profiles (id, tenant_id, role, display_name)
-    values (new.id, new_tenant, 'admin', new.email);
+    values (p_id, new_tenant, 'admin', p_email);
+end $$;
+
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  perform public.provision_profile(new.id, new.email, new.raw_user_meta_data->>'company');
   return new;
 end $$;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users for each row execute function public.handle_new_user();
+
+-- Selbstheilung vom Client aus aufrufbar: legt das eigene Profil nach, falls
+-- es fehlt (z. B. Trigger kurzzeitig deaktiviert, oder Alt-Nutzer ohne Profil).
+-- security definer, aber nur für den eigenen auth.uid() -> kein Missbrauch möglich.
+create or replace function public.ensure_my_profile()
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform public.provision_profile(auth.uid(), (select email from auth.users where id = auth.uid()));
+end $$;
+grant execute on function public.ensure_my_profile() to authenticated;
 
 -- ---------- 4) Ordner ----------
 create table if not exists public.folders (

@@ -89,6 +89,12 @@ async function ensureTenant(){
   var m=MP(); if(m.tenantId)return m.tenantId;
   if(!supa()||!m.user)return null;
   try{var r=await supa().from("profiles").select("tenant_id").eq("id",m.user.id).single(); if(r.data){m.tenantId=r.data.tenant_id;return r.data.tenant_id;}}catch(e){}
+  // Kein Profil gefunden -> selbst nachlegen (Selbstheilung), dann erneut lesen.
+  try{
+    await supa().rpc("ensure_my_profile");
+    var r2=await supa().from("profiles").select("tenant_id").eq("id",m.user.id).single();
+    if(r2.data){m.tenantId=r2.data.tenant_id;return r2.data.tenant_id;}
+  }catch(e){}
   return null;
 }
 
