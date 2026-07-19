@@ -131,8 +131,9 @@ function open(){
   grp.value=S.group; grp.onchange=function(){S.group=grp.value; renderDocs(currentRows);};
 
   var ana=el("button","btn","Analyse"); ana.onclick=analyze;
+  var charts=el("button","btn","Charts"); charts.onclick=openCharts;
 
-  [up,fileIn,nf,zip,ana,search,grp,hidW,trash].forEach(function(x){bar.appendChild(x);});
+  [up,fileIn,nf,zip,ana,charts,search,grp,hidW,trash].forEach(function(x){bar.appendChild(x);});
   main.appendChild(bar);
   var m=el("div","dms-msg",""); m.id="dms-msg"; m.setAttribute("role","status"); main.appendChild(m);
   selected=new Set();
@@ -525,6 +526,88 @@ async function analyze(){
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sum), "Zusammenfassung");
   XLSX.writeFile(wb, "Beleg-Analyse.xlsx");
   msg(rows.length+" Belege analysiert · Summe "+round2(total).toFixed(2)+" € · Excel heruntergeladen.");
+}
+
+/* ---------- Charts (reines SVG, keine Bibliothek) ---------- */
+function fmtEUR(n){ return Number(n).toFixed(2)+" €"; }
+function shortMonthLabel(mk){ var p=mk.split("-"); var d=new Date(Number(p[0]),Number(p[1])-1,1); return cap(d.toLocaleDateString(undefined,{month:"short",year:"2-digit"})); }
+function svgEl(tag,attrs){ var e=document.createElementNS("http://www.w3.org/2000/svg",tag); Object.keys(attrs||{}).forEach(function(k){e.setAttribute(k,attrs[k]);}); return e; }
+// Horizontale Balken (z. B. nach Kategorie): Label links, Balken, Wert rechts
+function barChartH(data,opts){
+  opts=opts||{};
+  var w=opts.width||520, rowH=26, gap=10, labelW=118, padTop=6, padBottom=6, valueW=76;
+  var max=0; data.forEach(function(d){ if(d.value>max)max=d.value; }); if(!max)max=1;
+  var h=padTop+padBottom+data.length*(rowH+gap)-gap;
+  var svg=svgEl("svg",{viewBox:"0 0 "+w+" "+h,width:"100%",height:h,role:"img","aria-label":opts.ariaLabel||""});
+  var barMaxW=w-labelW-valueW;
+  data.forEach(function(d,i){
+    var y=padTop+i*(rowH+gap);
+    var bw=Math.max(3,(d.value/max)*barMaxW);
+    var lbl=svgEl("text",{x:labelW-10,y:y+rowH/2+4,"text-anchor":"end",class:"chart-axis-label"}); lbl.textContent=d.label; svg.appendChild(lbl);
+    var rect=svgEl("rect",{x:labelW,y:y,width:bw,height:rowH-8,rx:4,class:"chart-bar"});
+    var t=svgEl("title"); t.textContent=d.label+": "+fmtEUR(d.value); rect.appendChild(t);
+    svg.appendChild(rect);
+    var val=svgEl("text",{x:labelW+bw+8,y:y+rowH/2+4,class:"chart-value-label"}); val.textContent=fmtEUR(d.value); svg.appendChild(val);
+  });
+  return svg;
+}
+// Vertikale Balken (z. B. nach Monat): chronologisch, Zeit auf der X-Achse
+function barChartV(data,opts){
+  opts=opts||{};
+  var w=opts.width||520, h=220, padLeft=8, padRight=8, padTop=18, padBottom=34, gap=10;
+  var max=0; data.forEach(function(d){ if(d.value>max)max=d.value; }); if(!max)max=1;
+  var plotH=h-padTop-padBottom, plotW=w-padLeft-padRight;
+  var n=data.length, barW=Math.max(6,(plotW-gap*(n-1))/n);
+  var svg=svgEl("svg",{viewBox:"0 0 "+w+" "+h,width:"100%",height:h,role:"img","aria-label":opts.ariaLabel||""});
+  svg.appendChild(svgEl("line",{x1:padLeft,y1:h-padBottom,x2:w-padRight,y2:h-padBottom,class:"chart-axis-line"}));
+  data.forEach(function(d,i){
+    var x=padLeft+i*(barW+gap);
+    var bh=Math.max(2,(d.value/max)*plotH);
+    var y=h-padBottom-bh;
+    var rect=svgEl("rect",{x:x,y:y,width:barW,height:bh,rx:4,class:"chart-bar"});
+    var t=svgEl("title"); t.textContent=d.label+": "+fmtEUR(d.value); rect.appendChild(t);
+    svg.appendChild(rect);
+    if(d.value>0){
+      var val=svgEl("text",{x:x+barW/2,y:y-6,"text-anchor":"middle",class:"chart-value-label chart-value-label-sm"}); val.textContent=Math.round(d.value); svg.appendChild(val);
+    }
+    var lbl=svgEl("text",{x:x+barW/2,y:h-padBottom+16,"text-anchor":"middle",class:"chart-axis-label"}); lbl.textContent=d.label; svg.appendChild(lbl);
+  });
+  return svg;
+}
+function openCharts(){
+  var rows=currentRows;
+  if(!rows.length){msg("Keine Dokumente zum Auswerten.",true);return;}
+  var total=0,n=0,byCat={},byMonth={},monthLabel={};
+  rows.forEach(function(d){
+    if(d.amount==null)return;
+    var a=Number(d.amount); total+=a; n++;
+    var c=d.category?typeLabel(d.category):"(ohne Kategorie)"; byCat[c]=(byCat[c]||0)+a;
+    var dd=docDate(d), mk=groupKey(dd,"month");
+    byMonth[mk]=(byMonth[mk]||0)+a; monthLabel[mk]=shortMonthLabel(mk);
+  });
+  var ov=el("div","dms-modal"), inner=el("div","dms-modal-inner"), bar=el("div","dms-modal-bar");
+  function close(){ ov.remove(); document.removeEventListener("keydown",onKey); }
+  function onKey(e){ if(e.key==="Escape")close(); }
+  bar.appendChild(el("b",null,"Charts"+(S.folder?" – "+folderName(S.folder):"")));
+  bar.appendChild(el("span","dms-modal-spacer"));
+  bar.appendChild(btn("Schließen","btn-sm",close));
+  inner.appendChild(bar);
+  var body=el("div","dms-modal-body chart-body");
+  if(n===0){
+    body.appendChild(el("p","lead","Keine Beträge erfasst – trage bei Belegen einen Betrag ein (Button „Betrag“), um Auswertungen zu sehen."));
+  } else {
+    body.appendChild(el("p","chart-summary", rows.length+" Beleg(e) · "+n+" mit Betrag · Summe "+fmtEUR(round2(total))));
+    var catData=Object.keys(byCat).map(function(k){return {label:k,value:round2(byCat[k])};}).sort(function(a,b){return b.value-a.value;});
+    body.appendChild(el("h3","chart-title","Nach Kategorie"));
+    body.appendChild(barChartH(catData,{ariaLabel:"Ausgaben nach Kategorie"}));
+    var monthKeys=Object.keys(byMonth).sort();
+    var monthData=monthKeys.map(function(k){return {label:monthLabel[k],value:round2(byMonth[k])};});
+    body.appendChild(el("h3","chart-title","Nach Monat"));
+    body.appendChild(barChartV(monthData,{ariaLabel:"Ausgaben nach Monat"}));
+  }
+  inner.appendChild(body);
+  ov.appendChild(inner); ov.onclick=function(e){ if(e.target===ov)close(); };
+  document.addEventListener("keydown",onKey); document.body.appendChild(ov);
 }
 async function toggleHidden(d){ var r=await supa().from("documents").update({is_hidden:!d.is_hidden}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs(); }
 async function softDelete(d){ if(!confirm("\""+displayName(d.name)+"\" in den Papierkorb verschieben?"))return; var r=await supa().from("documents").update({deleted_at:new Date().toISOString()}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else {msg("In den Papierkorb verschoben."); loadDocs();} }
