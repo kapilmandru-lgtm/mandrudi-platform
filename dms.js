@@ -2,7 +2,7 @@
 (function(){
 "use strict";
 
-var S={ folder:"", trash:false, showHidden:false, q:"", group:"" };
+var S={ folder:"", trash:false, showHidden:false, q:"", group:"", tag:"" };
 var folders=[];          // {id,name,parent_id}
 var currentRows=[];      // aktuell angezeigte Dokumente
 var selected=new Set();  // ausgewählte Dokument-IDs (Mehrfachauswahl)
@@ -232,6 +232,7 @@ function renderCrumb(){
   if(!S.folder){
     c.appendChild(el("span","crumb-cur","Hauptliste"));
     c.appendChild(el("span","crumb-hint", S.q?" · Suche in allen Ordnern":" · Belege ohne Ordner"));
+    appendTagCrumb(c);
     return;
   }
   var home=el("a","crumb-link","Hauptliste"); home.href="#"; home.onclick=function(e){e.preventDefault(); selectFolder("");};
@@ -243,6 +244,14 @@ function renderCrumb(){
     else{ var a=el("a","crumb-link",f.name); a.href="#"; a.onclick=(function(id){return function(e){e.preventDefault(); selectFolder(id);};})(f.id); c.appendChild(a); }
   });
   if(S.q)c.appendChild(el("span","crumb-hint"," · Suche im Ordner"));
+  appendTagCrumb(c);
+}
+function appendTagCrumb(c){
+  if(!S.tag)return;
+  c.appendChild(el("span","crumb-hint"," · Tag: "));
+  c.appendChild(el("span","crumb-cur","#"+S.tag));
+  var clear=el("a","crumb-link"," × entfernen"); clear.href="#"; clear.onclick=function(e){e.preventDefault(); S.tag=""; loadDocs(); renderCrumb();};
+  c.appendChild(clear);
 }
 
 /* ---------- Dokumente laden ---------- */
@@ -254,13 +263,14 @@ async function loadDocs(){
   else {
     qy=qy.is("deleted_at",null); if(!S.showHidden)qy=qy.eq("is_hidden",false);
     if(S.folder)qy=qy.eq("folder_id",S.folder);
-    else if(!S.q)qy=qy.is("folder_id",null); // Hauptliste = nur Belege ohne Ordner; Suche ohne Ordner sucht ueberall
+    else if(!S.q && !S.tag)qy=qy.is("folder_id",null); // Hauptliste = nur Belege ohne Ordner; Suche/Tag-Filter ohne Ordner sucht ueberall
   }
   if(S.q){
     var terms=searchTerms(S.q);
     if(terms.length>1 && !/[,()]/.test(S.q))qy=qy.or(terms.map(function(t){return "name.ilike.%"+t+"%";}).join(","));
     else qy=qy.ilike("name","%"+S.q+"%");
   }
+  if(S.tag)qy=qy.contains("tags",[S.tag]);
   var r=await qy;
   if(r.error){list.textContent=""; handleErr(r.error,"Fehler beim Laden"); return;}
   currentRows=(r.data||[]).slice().sort(function(a,b){ return docDate(b)-docDate(a); }); // nach Beleg-Datum, neueste zuerst
@@ -301,6 +311,7 @@ function updateSelBar(){
     fsel.appendChild(new Option("+ Neuer Ordner...","__new"));
     sb.appendChild(fsel);
     sb.appendChild(btn("Verschieben","btn-sm btn-primary",bulkMove));
+    sb.appendChild(btn("Tag hinzufügen","btn-sm",bulkTag));
     sb.appendChild(btn("Ausgewählte auslesen","btn-sm",bulkRead));
     sb.appendChild(btn("Ausgewählte löschen","btn-sm btn-danger",bulkDelete));
     sb.appendChild(btn("Auswahl aufheben","btn-sm",function(){selected.clear();renderDocs(currentRows);}));
@@ -322,6 +333,21 @@ async function bulkMove(){
   var r2=await supa().from("documents").update({folder_id:target}).in("id",ids);
   if(r2.error){msg("Fehler: "+r2.error.message,true);return;}
   msg(ids.length+" Dokument(e) verschoben."); selected.clear(); loadDocs();
+}
+async function bulkTag(){
+  if(!selected.size)return;
+  var t=prompt("Tag zu "+selected.size+" ausgewählten Dokument(en) hinzufügen:"); if(t===null)return;
+  t=t.trim(); if(!t)return;
+  var docs=currentRows.filter(function(d){return selected.has(d.id);});
+  var n=0;
+  for(var i=0;i<docs.length;i++){
+    var d=docs[i]; var tags=(d.tags||[]).slice();
+    if(tags.some(function(x){return x.toLowerCase()===t.toLowerCase();})){n++;continue;}
+    tags.push(t);
+    var r=await supa().from("documents").update({tags:tags}).eq("id",d.id);
+    if(!r.error)n++;
+  }
+  msg("Tag \""+t+"\" bei "+n+" von "+docs.length+" Dokument(en) gesetzt."); selected.clear(); loadDocs();
 }
 async function bulkDelete(){
   if(!selected.size)return;
@@ -359,7 +385,15 @@ function docRow(d){
   var nm=el("div","doc-name"); var nb=el("b","doc-name-b",displayName(d.name)); nb.onmouseenter=function(){hoverPreview(d,nb);}; nb.onmouseleave=hideHover; nm.appendChild(nb); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); main.appendChild(nm);
   var meta=[]; if(d.category)meta.push(typeLabel(d.category)); if(d.amount!=null)meta.push(Number(d.amount).toFixed(2)+" €"); if(d.folder_id&&d.folder_id!==S.folder)meta.push("Ordner: "+folderName(d.folder_id)); if(d.size_bytes!=null)meta.push(fmtSize(d.size_bytes)); var pd=parseNameDate(d.name); meta.push(pd?("Beleg: "+fmtDateObj(pd)):("Upload: "+fmtDate(d.created_at)));
   var metaEl=el("div","doc-meta"); meta.forEach(function(m){metaEl.appendChild(el("span",null,m));}); main.appendChild(metaEl);
-  if(d.tags&&d.tags.length)main.appendChild(el("div","doc-tags",d.tags.map(function(t){return "#"+t;}).join(" ")));
+  if(d.tags&&d.tags.length){
+    var tagsEl=el("div","doc-tags");
+    d.tags.forEach(function(t){
+      var chip=el("span","tag-chip"+(S.tag===t?" tag-chip-active":""),"#"+t);
+      chip.title="Nach Tag filtern"; chip.onclick=function(e){ e.stopPropagation(); S.tag=(S.tag===t?"":t); loadDocs(); renderCrumb(); };
+      tagsEl.appendChild(chip);
+    });
+    main.appendChild(tagsEl);
+  }
   row.appendChild(main);
 
   var act=el("div","doc-act");
@@ -375,6 +409,7 @@ function docRow(d){
     mv.onchange=function(){ if(!mv.value)return; moveFolder(d, mv.value==="__root"?null:mv.value); }; act.appendChild(mv);
     act.appendChild(btn("Kategorie","btn-sm",function(){setCategory(d);}));
     act.appendChild(btn("Betrag","btn-sm",function(){setAmount(d);}));
+    act.appendChild(btn("Tags","btn-sm",function(){setTags(d);}));
     act.appendChild(btn("Auslesen","btn-sm",function(){readReceipt(d);}));
     act.appendChild(btn(d.is_hidden?"Einblenden":"Verbergen","btn-sm",function(){toggleHidden(d);}));
     act.appendChild(btn("Loeschen","btn-sm btn-danger",function(){softDelete(d);}));
@@ -453,6 +488,17 @@ async function setAmount(d){
   var num=(v==="")?null:Number(v);
   if(num!==null && isNaN(num)){msg("Bitte eine gültige Zahl eingeben.",true);return;}
   var r=await supa().from("documents").update({amount:num}).eq("id",d.id);
+  if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs();
+}
+async function setTags(d){
+  var cur=(d.tags||[]).join(", ");
+  var v=prompt("Tags für \""+displayName(d.name)+"\" (kommagetrennt, leer = keine):", cur);
+  if(v===null)return;
+  var seen=new Set();
+  var tags=v.split(",").map(function(t){return t.trim();}).filter(function(t){
+    if(!t||seen.has(t.toLowerCase()))return false; seen.add(t.toLowerCase()); return true;
+  });
+  var r=await supa().from("documents").update({tags:tags}).eq("id",d.id);
   if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs();
 }
 function round2(n){return Math.round(n*100)/100;}
