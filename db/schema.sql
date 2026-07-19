@@ -151,6 +151,13 @@ drop policy if exists docs_storage_delete on storage.objects;
 create policy docs_storage_delete on storage.objects for delete using (
   bucket_id = 'documents' and (storage.foldername(name))[1] = public.current_tenant_id()::text
 );
+-- Update noetig, um eine Datei am selben Pfad zu ersetzen (z. B. Ver-/Entschluesseln in-place)
+drop policy if exists docs_storage_update on storage.objects;
+create policy docs_storage_update on storage.objects for update using (
+  bucket_id = 'documents' and (storage.foldername(name))[1] = public.current_tenant_id()::text
+) with check (
+  bucket_id = 'documents' and (storage.foldername(name))[1] = public.current_tenant_id()::text
+);
 
 -- Fertig. Jeder neue Login bekommt automatisch eine eigene Firma (als Admin);
 -- weitere Mitarbeiter kommen später per Einladung in dieselbe Firma.

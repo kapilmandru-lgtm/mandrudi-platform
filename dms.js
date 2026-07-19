@@ -8,6 +8,7 @@ var currentRows=[];      // aktuell angezeigte Dokumente
 var selected=new Set();  // ausgewählte Dokument-IDs (Mehrfachauswahl)
 var expanded=new Set();  // im Baum aufgeklappte Ordner
 var docCounts={}, unfiledCount=0; // Beleg-Anzahl je Ordner / ohne Ordner (ohne Papierkorb)
+var decCache={}; // entschlüsselte Klartext-Blobs je Dokument-ID (nur im Speicher, pro Sitzung)
 
 function el(tag,cls,txt){var e=document.createElement(tag); if(cls)e.className=cls; if(txt!=null)e.textContent=txt; return e;}
 function MP(){return window.MP||{};}
@@ -16,6 +17,82 @@ function msg(t,err){var m=document.getElementById("dms-msg"); if(m){m.textConten
 function isAuthErr(err){var m=((err&&err.message)||err||"")+""; return /permission denied|jwt|not authenticated|auth session|session.*missing|unauthorized|row-level|\b401\b|\b403\b/i.test(m);}
 function handleErr(err,fallback){ if(isAuthErr(err)){ if(MP().requireLogin)MP().requireLogin(); return true; } msg(fallback+((err&&err.message)?(": "+err.message):""),true); return false; }
 function uuid(){try{return crypto.randomUUID();}catch(e){return Date.now()+"_"+Math.floor(Math.random()*1e9);}}
+
+/* ---------- Verschlüsselung (AES-GCM, clientseitig, Code nie an Supabase gesendet) ----------
+   Ablage: [Magic "MPENC1"(6 Byte)][Salt(16)][IV(12)][Chiffretext] als Ersatz fuer den
+   Original-Dateiinhalt im selben Storage-Objekt; is_encrypted=true markiert es in der DB. */
+var ENC_MAGIC="MPENC1";
+function guessType(name){
+  var ext=(name||"").split(".").pop().toLowerCase();
+  var map={jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",gif:"image/gif",webp:"image/webp",heic:"image/heic",heif:"image/heif",bmp:"image/bmp",avif:"image/avif",pdf:"application/pdf"};
+  return map[ext]||"application/octet-stream";
+}
+async function deriveKey(passphrase,salt){
+  var km=await crypto.subtle.importKey("raw",new TextEncoder().encode(passphrase),{name:"PBKDF2"},false,["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2",salt:salt,iterations:150000,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
+}
+async function encryptBlob(blob,passphrase){
+  var plain=new Uint8Array(await blob.arrayBuffer());
+  var salt=crypto.getRandomValues(new Uint8Array(16)), iv=crypto.getRandomValues(new Uint8Array(12));
+  var key=await deriveKey(passphrase,salt);
+  var cipher=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv:iv},key,plain));
+  var magic=new TextEncoder().encode(ENC_MAGIC);
+  var out=new Uint8Array(magic.length+salt.length+iv.length+cipher.length);
+  out.set(magic,0); out.set(salt,magic.length); out.set(iv,magic.length+salt.length); out.set(cipher,magic.length+salt.length+iv.length);
+  return new Blob([out],{type:"application/octet-stream"});
+}
+async function decryptBlob(blob,passphrase,origType){
+  var buf=new Uint8Array(await blob.arrayBuffer()), ml=ENC_MAGIC.length;
+  if(new TextDecoder().decode(buf.slice(0,ml))!==ENC_MAGIC) throw new Error("Datei ist nicht im erwarteten verschlüsselten Format.");
+  var salt=buf.slice(ml,ml+16), iv=buf.slice(ml+16,ml+28), cipher=buf.slice(ml+28);
+  var key=await deriveKey(passphrase,salt), plainBuf;
+  try{ plainBuf=await crypto.subtle.decrypt({name:"AES-GCM",iv:iv},key,cipher); }
+  catch(e){ throw new Error("Falscher Code oder beschädigte Datei."); }
+  return new Blob([plainBuf],{type:origType||"application/octet-stream"});
+}
+// Entschlüsselten Klartext fuer ein Dokument holen; fragt bei Bedarf einmal pro Sitzung nach dem Code.
+async function getDecrypted(d){
+  if(decCache[d.id])return decCache[d.id];
+  var code=prompt("Code zum Entsperren von \""+displayName(d.name)+"\":"); if(!code)return null;
+  var r=await supa().storage.from("documents").download(d.storage_path);
+  if(r.error){msg("Fehler: "+r.error.message,true);return null;}
+  var plain;
+  try{ plain=await decryptBlob(r.data,code,guessType(d.name)); }
+  catch(e){ msg(e.message,true); return null; }
+  decCache[d.id]=plain; return plain;
+}
+async function toggleEncrypt(d){
+  if(d.is_encrypted){
+    var code=prompt("Code zum Entschlüsseln von \""+displayName(d.name)+"\":"); if(!code)return;
+    msg("Entschlüssele ...");
+    var r=await supa().storage.from("documents").download(d.storage_path);
+    if(r.error){msg("Fehler: "+r.error.message,true);return;}
+    var plain;
+    try{ plain=await decryptBlob(r.data,code,guessType(d.name)); }
+    catch(e){ msg(e.message,true); return; }
+    var up=await supa().storage.from("documents").update(d.storage_path,plain,{upsert:true});
+    if(up.error){msg("Fehler beim Speichern: "+up.error.message,true);return;}
+    var db=await supa().from("documents").update({is_encrypted:false}).eq("id",d.id);
+    if(db.error){msg("Fehler: "+db.error.message,true);return;}
+    delete urlCache[d.id]; delete decCache[d.id];
+    msg("Entschlüsselt."); loadDocs();
+  } else {
+    var c1=prompt("Code zum Verschlüsseln von \""+displayName(d.name)+"\" festlegen:"); if(!c1)return;
+    var c2=prompt("Code zur Bestätigung erneut eingeben:"); if(c2===null)return;
+    if(c1!==c2){msg("Codes stimmen nicht überein.",true);return;}
+    msg("Verschlüssele ...");
+    var r2=await supa().storage.from("documents").download(d.storage_path);
+    if(r2.error){msg("Fehler: "+r2.error.message,true);return;}
+    var enc=await encryptBlob(r2.data,c1);
+    var up2=await supa().storage.from("documents").update(d.storage_path,enc,{upsert:true});
+    if(up2.error){msg("Fehler beim Speichern: "+up2.error.message,true);return;}
+    var db2=await supa().from("documents").update({is_encrypted:true}).eq("id",d.id);
+    if(db2.error){msg("Fehler: "+db2.error.message,true);return;}
+    delete urlCache[d.id]; delete decCache[d.id];
+    msg("Verschlüsselt. Ohne den Code ist die Datei nicht mehr lesbar – bitte sicher aufbewahren.");
+    loadDocs();
+  }
+}
 function fmtSize(b){ if(b==null)return""; if(b<1024)return b+" B"; if(b<1048576)return (b/1024).toFixed(0)+" KB"; return (b/1048576).toFixed(1)+" MB"; }
 function fmtDate(s){try{return new Date(s).toLocaleDateString();}catch(e){return"";}}
 function fmtDateObj(dt){try{return dt.toLocaleDateString();}catch(e){return"";}}
@@ -383,7 +460,7 @@ function docRow(d){
     row.appendChild(cb);
   }
   var main=el("div","doc-main doc-clickable"); main.title="Klicken: Beleg anzeigen"; main.onclick=function(){openPreview(d);};
-  var nm=el("div","doc-name"); var nb=el("b","doc-name-b",displayName(d.name)); nb.onmouseenter=function(){hoverPreview(d,nb);}; nb.onmouseleave=hideHover; nm.appendChild(nb); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); main.appendChild(nm);
+  var nm=el("div","doc-name"); var nb=el("b","doc-name-b",displayName(d.name)); nb.onmouseenter=function(){hoverPreview(d,nb);}; nb.onmouseleave=hideHover; nm.appendChild(nb); if(d.is_hidden)nm.appendChild(el("span","doc-badge","verborgen")); if(d.is_encrypted)nm.appendChild(el("span","doc-badge doc-badge-lock","verschlüsselt")); main.appendChild(nm);
   var meta=[]; if(d.category)meta.push(typeLabel(d.category)); if(d.amount!=null)meta.push(Number(d.amount).toFixed(2)+" €"); if(d.folder_id&&d.folder_id!==S.folder)meta.push("Ordner: "+folderName(d.folder_id)); if(d.size_bytes!=null)meta.push(fmtSize(d.size_bytes)); var pd=parseNameDate(d.name); meta.push(pd?("Beleg: "+fmtDateObj(pd)):("Upload: "+fmtDate(d.created_at)));
   var metaEl=el("div","doc-meta"); meta.forEach(function(m){metaEl.appendChild(el("span",null,m));}); main.appendChild(metaEl);
   if(d.tags&&d.tags.length){
@@ -412,7 +489,8 @@ function docRow(d){
     act.appendChild(btn("Kategorie","btn-sm",function(){setCategory(d);}));
     act.appendChild(btn("Betrag","btn-sm",function(){setAmount(d);}));
     act.appendChild(btn("Tags","btn-sm",function(){setTags(d);}));
-    act.appendChild(btn("Auslesen","btn-sm",function(){readReceipt(d);}));
+    if(!d.is_encrypted)act.appendChild(btn("Auslesen","btn-sm",function(){readReceipt(d);})); // OCR kann Chiffretext nicht lesen
+    act.appendChild(btn(d.is_encrypted?"Entschlüsseln":"Verschlüsseln","btn-sm",function(){toggleEncrypt(d);}));
     act.appendChild(btn(d.is_hidden?"Einblenden":"Verbergen","btn-sm",function(){toggleHidden(d);}));
     act.appendChild(btn("Loeschen","btn-sm btn-danger",function(){softDelete(d);}));
   }
@@ -464,6 +542,10 @@ async function doUpload(files){
   loadDocs();
 }
 async function download(d){
+  if(d.is_encrypted){
+    var plain=await getDecrypted(d); if(!plain)return;
+    triggerDownload(plain,displayName(d.name)); msg(""); return;
+  }
   msg("Lade herunter ...");
   var r=await supa().storage.from("documents").download(d.storage_path);
   if(r.error){msg("Download-Fehler: "+r.error.message,true);return;}
@@ -480,11 +562,16 @@ function outlookComposeUrl(subject,body){
   return "https://outlook.office.com/mail/deeplink/compose?subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(body);
 }
 async function shareDoc(d){
-  msg("Bereite Beleg zum Teilen vor ...");
-  var r=await supa().storage.from("documents").download(d.storage_path);
-  if(r.error){msg("Fehler: "+r.error.message,true);return;}
-  var name=displayName(d.name), blob=r.data;
-  if(isPdfName(d.name) && blob.type!=="application/pdf"){ blob=blob.slice(0,blob.size,"application/pdf"); }
+  var name=displayName(d.name), blob;
+  if(d.is_encrypted){
+    blob=await getDecrypted(d); if(!blob)return;
+  } else {
+    msg("Bereite Beleg zum Teilen vor ...");
+    var r=await supa().storage.from("documents").download(d.storage_path);
+    if(r.error){msg("Fehler: "+r.error.message,true);return;}
+    blob=r.data;
+    if(isPdfName(d.name) && blob.type!=="application/pdf"){ blob=blob.slice(0,blob.size,"application/pdf"); }
+  }
   triggerDownload(blob,name);
   var url=outlookComposeUrl("Beleg: "+name,"Im Anhang: "+name+" (bitte soeben heruntergeladene Datei im Outlook-Entwurf anhängen).");
   var w=window.open(url,"_blank","noopener");
@@ -717,6 +804,7 @@ function makeName(type,date,amount,origName){
 }
 // Kern: liest 1 Beleg, setzt Kategorie + Betrag + benennt um. Wirft bei Fehler.
 async function processDoc(d){
+  if(d.is_encrypted) throw new Error("Verschlüsselter Beleg – bitte zuerst entschlüsseln.");
   var r=await supa().storage.from("documents").download(d.storage_path);
   if(r.error) throw new Error("[Download] "+(r.error.message||JSON.stringify(r.error)));
   var text=await extractText(r.data,d.name);
@@ -751,11 +839,16 @@ function isImgName(n){ return /\.(jpe?g|png|gif|webp|bmp|heic|heif|avif)$/i.test
 function isPdfName(n){ return /\.pdf$/i.test(n||""); }
 async function previewUrl(d){
   if(urlCache[d.id]) return urlCache[d.id];
-  // bewährter Download-Weg (kein signierter Link nötig) -> lokale Objekt-URL
-  var r=await supa().storage.from("documents").download(d.storage_path);
-  if(r.error||!r.data) throw new Error((r.error&&r.error.message)||"Datei-Download fehlgeschlagen");
-  var blob=r.data;
-  if(isPdfName(d.name) && blob.type!=="application/pdf"){ blob=blob.slice(0,blob.size,"application/pdf"); }
+  var blob;
+  if(d.is_encrypted){
+    blob=await getDecrypted(d); if(!blob) throw new Error("Ohne Code keine Vorschau möglich.");
+  } else {
+    // bewährter Download-Weg (kein signierter Link nötig) -> lokale Objekt-URL
+    var r=await supa().storage.from("documents").download(d.storage_path);
+    if(r.error||!r.data) throw new Error((r.error&&r.error.message)||"Datei-Download fehlgeschlagen");
+    blob=r.data;
+    if(isPdfName(d.name) && blob.type!=="application/pdf"){ blob=blob.slice(0,blob.size,"application/pdf"); }
+  }
   var u=URL.createObjectURL(blob);
   urlCache[d.id]=u; return u;
 }
@@ -785,7 +878,7 @@ async function openPreview(d){
 var hoverEl=null, hoverTimer=null, hoverId=null;
 function ensureHover(){ if(!hoverEl){ hoverEl=el("div","dms-hover"); hoverEl.style.display="none"; document.body.appendChild(hoverEl); } return hoverEl; }
 function hoverPreview(d,anchor){
-  if(!isImgName(d.name))return;
+  if(!isImgName(d.name)||d.is_encrypted)return; // kein Code-Prompt nur wegen Mouse-Hover
   clearTimeout(hoverTimer);
   hoverTimer=setTimeout(function(){
     var h=ensureHover(); hoverId=d.id; h.innerHTML=""; h.style.display="block";
