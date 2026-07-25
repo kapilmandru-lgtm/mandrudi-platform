@@ -27,7 +27,7 @@ var TOOL_BASE="https://tools.mandrudi.com/";
 var I18N={
  de:{app_name:"Mandrudi Plattform",auth_sub:"Modulare Werkzeuge für Supply Chain, Dokumente & Projekte.",
   auth_email:"E-Mail",auth_pass:"Passwort",auth_login:"Anmelden",auth_register:"Registrieren",auth_demo:"Ohne Konto ansehen (Demo)",
-  logout:"Abmelden",nav_dashboard:"Übersicht",nav_dms:"Dokumente",nav_pm:"Projekte",nav_tools:"Tools & Add-ons",
+  logout:"Abmelden",nav_dashboard:"Übersicht",nav_dms:"Dokumente",nav_pm:"Projekte",nav_crm:"CRM",dash_crm:"Firmen, Kontakte, Deals",nav_team:"Team",sub_team:"Kollegen einladen & Team verwalten.",nav_tools:"Tools & Add-ons",
   phase0:"Phase 0 · Gerüst",dash_hi:"Willkommen",dash_sub:"Wähle links ein Modul. Dokumente und Projekte kommen als Nächstes; die Tools sind bereits als Add-ons verfügbar.",
   dash_dms:"Ablegen, suchen, teilen",dash_pm:"Aufgaben & Boards",dash_tools:"16 Rechner & Checks",soon:"In Phase 1",
   dms_intro:"Das Dokumentenmanagement (DMS) wird hier gebaut. Geplant:",
@@ -103,6 +103,68 @@ function show(view){
   var el=document.getElementById("view-"+view); if(el)el.classList.remove("hidden");
   document.querySelectorAll(".nav-item").forEach(function(b){b.classList.toggle("active",b.getAttribute("data-view")===view);});
   if(view==="dms" && window.MPDMS){window.MPDMS.open();}
+  if(view==="pm" && window.MPPM){window.MPPM.open();}
+  if(view==="crm" && window.MPCRM){window.MPCRM.open();}
+  if(view==="team"){viewTeam();}
+}
+
+/* ---- Team / Einladungen ---- */
+function teamEl(tag,cls,txt){var e=document.createElement(tag); if(cls)e.className=cls; if(txt!=null)e.textContent=txt; return e;}
+async function viewTeam(){
+  var box=document.getElementById("teamBox"); if(!box)return;
+  box.innerHTML="Lädt …";
+  var isAdmin=window.MP.role==="admin";
+  var res=await Promise.all([
+    window.MP.supa.from("profiles").select("id,display_name,role").order("display_name"),
+    isAdmin ? window.MP.supa.from("invites").select("*").is("accepted_at",null).order("created_at") : Promise.resolve({data:[]})
+  ]);
+  var members=res[0].data||[], invites=res[1].data||[];
+  box.innerHTML="";
+
+  var mh=teamEl("h3",null,"Mitglieder"); box.appendChild(mh);
+  var mlist=teamEl("div","tiles");
+  members.forEach(function(m){
+    var card=teamEl("div","tile");
+    card.appendChild(teamEl("b",null,m.display_name||m.id));
+    card.appendChild(teamEl("span",null,m.role==="admin"?"Admin":"Mitglied"));
+    mlist.appendChild(card);
+  });
+  if(!members.length)mlist.appendChild(teamEl("p","lead","Noch keine Mitglieder."));
+  box.appendChild(mlist);
+
+  if(!isAdmin)return;
+
+  var ih=teamEl("h3",null,"Ausstehende Einladungen"); ih.style.marginTop="26px"; box.appendChild(ih);
+  if(!invites.length){ box.appendChild(teamEl("p","lead","Keine offenen Einladungen.")); }
+  invites.forEach(function(inv){
+    var row=teamEl("div"); row.style.cssText="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)";
+    row.appendChild(teamEl("span",null,inv.email));
+    var del=teamEl("button","btn btn-ghost btn-sm","Zurückziehen");
+    del.onclick=async function(){ await window.MP.supa.from("invites").delete().eq("id",inv.id); viewTeam(); };
+    row.appendChild(del);
+    box.appendChild(row);
+  });
+
+  var fh=teamEl("h3",null,"Kollegen einladen"); fh.style.marginTop="26px"; box.appendChild(fh);
+  var form=teamEl("div"); form.style.cssText="display:flex;gap:10px;max-width:420px";
+  var input=teamEl("input"); input.type="email"; input.placeholder="kollege@firma.de";
+  input.style.cssText="flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 11px;font:inherit";
+  var btn=teamEl("button","btn btn-primary btn-sm","Einladen");
+  var msg=teamEl("p","lead","");
+  btn.onclick=async function(){
+    var email=input.value.trim().toLowerCase();
+    if(!email){ return; }
+    btn.disabled=true;
+    var r=await window.MP.supa.from("invites").insert({tenant_id:window.MP.tenantId, email:email, invited_by:window.MP.user.id});
+    btn.disabled=false;
+    if(r.error){
+      msg.textContent=/duplicate|unique/i.test(r.error.message) ? "Diese E-Mail ist schon eingeladen." : ("Fehler: "+r.error.message);
+    } else {
+      input.value=""; viewTeam();
+    }
+  };
+  form.appendChild(input); form.appendChild(btn);
+  box.appendChild(form); box.appendChild(msg);
 }
 
 /* ---- Add-ons (Tools) ---- */
@@ -147,15 +209,15 @@ function enterApp(email,user){
 }
 // Gemeinsame API für die Module (DMS, PM, …)
 function initMP(){
-  window.MP={supa:supa, user:currentUser, tenantId:null, t:t, get lang(){return lang;}, requireLogin:function(m){showAuth(m||"Sitzung abgelaufen – bitte neu anmelden.");}};
+  window.MP={supa:supa, user:currentUser, tenantId:null, role:null, t:t, get lang(){return lang;}, requireLogin:function(m){showAuth(m||"Sitzung abgelaufen – bitte neu anmelden.");}};
   if(supa && currentUser){
-    supa.from("profiles").select("tenant_id").eq("id",currentUser.id).single().then(function(r){
-      if(r&&r.data){window.MP.tenantId=r.data.tenant_id;return;}
+    supa.from("profiles").select("tenant_id,role").eq("id",currentUser.id).single().then(function(r){
+      if(r&&r.data){window.MP.tenantId=r.data.tenant_id;window.MP.role=r.data.role;return;}
       // Kein Profil gefunden (Trigger hat's verpasst, oder Alt-Nutzer) -> selbst nachlegen, dann erneut lesen.
       supa.rpc("ensure_my_profile").then(function(){
-        return supa.from("profiles").select("tenant_id").eq("id",currentUser.id).single();
+        return supa.from("profiles").select("tenant_id,role").eq("id",currentUser.id).single();
       }).then(function(r2){
-        if(r2&&r2.data){window.MP.tenantId=r2.data.tenant_id;}
+        if(r2&&r2.data){window.MP.tenantId=r2.data.tenant_id;window.MP.role=r2.data.role;}
       }).catch(function(){});
     }).catch(function(){});
   }

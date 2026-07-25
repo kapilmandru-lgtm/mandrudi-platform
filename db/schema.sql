@@ -161,3 +161,294 @@ create policy docs_storage_update on storage.objects for update using (
 
 -- Fertig. Jeder neue Login bekommt automatisch eine eigene Firma (als Admin);
 -- weitere Mitarbeiter kommen später per Einladung in dieselbe Firma.
+
+-- =====================================================================
+-- PM-Modul (Phase 1): Projekte + Aufgaben, gleiches Mehrmandanten-Muster wie oben.
+-- =====================================================================
+
+-- ---------- 8) Projekte ----------
+create table if not exists public.pm_projects (
+  id         uuid primary key default gen_random_uuid(),
+  tenant_id  uuid not null references public.tenants(id) on delete cascade,
+  name       text not null,
+  color      text,
+  archived   boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+-- ---------- 9) Aufgaben ----------
+create table if not exists public.pm_tasks (
+  id          uuid primary key default gen_random_uuid(),
+  tenant_id   uuid not null references public.tenants(id) on delete cascade,
+  project_id  uuid references public.pm_projects(id) on delete cascade,
+  title       text not null,
+  description text not null default '',
+  status      text not null default 'todo' check (status in ('todo','doing','done')),
+  assignee    uuid references auth.users(id) on delete set null,
+  due_date    date,
+  position    integer not null default 0,
+  created_at  timestamptz not null default now()
+);
+create index if not exists pm_tasks_tenant_idx  on public.pm_tasks(tenant_id);
+create index if not exists pm_tasks_project_idx on public.pm_tasks(project_id);
+
+-- ---------- 10) Row Level Security (gleiches Muster: nur eigene Firma) ----------
+alter table public.pm_projects enable row level security;
+alter table public.pm_tasks    enable row level security;
+
+drop policy if exists pm_projects_all_same_tenant on public.pm_projects;
+create policy pm_projects_all_same_tenant on public.pm_projects
+  for all using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+drop policy if exists pm_tasks_all_same_tenant on public.pm_tasks;
+create policy pm_tasks_all_same_tenant on public.pm_tasks
+  for all using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+grant select, insert, update, delete on public.pm_projects to authenticated;
+grant select, insert, update, delete on public.pm_tasks    to authenticated;
+
+-- =====================================================================
+-- PM-Modul Increment 2: Kommentare, Checklisten, DMS-Verknüpfung
+-- =====================================================================
+
+create table if not exists public.pm_comments (
+  id         uuid primary key default gen_random_uuid(),
+  tenant_id  uuid not null references public.tenants(id) on delete cascade,
+  task_id    uuid not null references public.pm_tasks(id) on delete cascade,
+  author     uuid references auth.users(id) on delete set null,
+  body       text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists pm_comments_task_idx on public.pm_comments(task_id);
+
+create table if not exists public.pm_checklist_items (
+  id         uuid primary key default gen_random_uuid(),
+  tenant_id  uuid not null references public.tenants(id) on delete cascade,
+  task_id    uuid not null references public.pm_tasks(id) on delete cascade,
+  text       text not null,
+  done       boolean not null default false,
+  position   integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists pm_checklist_task_idx on public.pm_checklist_items(task_id);
+
+create table if not exists public.pm_task_documents (
+  id          uuid primary key default gen_random_uuid(),
+  tenant_id   uuid not null references public.tenants(id) on delete cascade,
+  task_id     uuid not null references public.pm_tasks(id) on delete cascade,
+  document_id uuid not null references public.documents(id) on delete cascade,
+  created_at  timestamptz not null default now()
+);
+create index if not exists pm_task_docs_task_idx on public.pm_task_documents(task_id);
+create unique index if not exists pm_task_docs_unique on public.pm_task_documents(task_id, document_id);
+
+alter table public.pm_comments        enable row level security;
+alter table public.pm_checklist_items enable row level security;
+alter table public.pm_task_documents  enable row level security;
+
+drop policy if exists pm_comments_all_same_tenant on public.pm_comments;
+create policy pm_comments_all_same_tenant on public.pm_comments
+  for all using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+drop policy if exists pm_checklist_all_same_tenant on public.pm_checklist_items;
+create policy pm_checklist_all_same_tenant on public.pm_checklist_items
+  for all using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+drop policy if exists pm_task_docs_all_same_tenant on public.pm_task_documents;
+create policy pm_task_docs_all_same_tenant on public.pm_task_documents
+  for all using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+grant select, insert, update, delete on public.pm_comments        to authenticated;
+grant select, insert, update, delete on public.pm_checklist_items to authenticated;
+grant select, insert, update, delete on public.pm_task_documents  to authenticated;
+
+-- =====================================================================
+-- CRM-Modul (Phase 1): Firmen, Kontakte, Deals, Aktivitäten — eigene "CRM-Projekte"
+-- innerhalb einer Firma (z. B. "SAP" / "IT Service Sales"), analog zum Stand-alone-CRM.
+-- =====================================================================
+
+create table if not exists public.crm_projects (
+  id         uuid primary key default gen_random_uuid(),
+  tenant_id  uuid not null references public.tenants(id) on delete cascade,
+  name       text not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.crm_companies (
+  id         uuid primary key default gen_random_uuid(),
+  tenant_id  uuid not null references public.tenants(id) on delete cascade,
+  project_id uuid not null references public.crm_projects(id) on delete cascade,
+  name       text not null,
+  industry   text not null default '',
+  website    text not null default '',
+  phone      text not null default '',
+  address    text not null default '',
+  notes      text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists crm_companies_project_idx on public.crm_companies(project_id);
+
+create table if not exists public.crm_contacts (
+  id           uuid primary key default gen_random_uuid(),
+  tenant_id    uuid not null references public.tenants(id) on delete cascade,
+  project_id   uuid not null references public.crm_projects(id) on delete cascade,
+  company_id   uuid references public.crm_companies(id) on delete set null,
+  first_name   text not null default '',
+  last_name    text not null default '',
+  title        text not null default '',
+  position     text not null default '',
+  last_contact date,
+  email        text not null default '',
+  phone        text not null default '',
+  tags         text[] not null default '{}',
+  notes        text not null default '',
+  created_at   timestamptz not null default now()
+);
+create index if not exists crm_contacts_project_idx on public.crm_contacts(project_id);
+
+create table if not exists public.crm_deals (
+  id          uuid primary key default gen_random_uuid(),
+  tenant_id   uuid not null references public.tenants(id) on delete cascade,
+  project_id  uuid not null references public.crm_projects(id) on delete cascade,
+  company_id  uuid references public.crm_companies(id) on delete set null,
+  contact_id  uuid references public.crm_contacts(id) on delete set null,
+  title       text not null,
+  value       numeric not null default 0,
+  stage       text not null default 'lead',
+  candidate   text not null default '',
+  close_date  date,
+  notes       text not null default '',
+  done        boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+create index if not exists crm_deals_project_idx on public.crm_deals(project_id);
+
+create table if not exists public.crm_activities (
+  id         uuid primary key default gen_random_uuid(),
+  tenant_id  uuid not null references public.tenants(id) on delete cascade,
+  project_id uuid not null references public.crm_projects(id) on delete cascade,
+  contact_id uuid references public.crm_contacts(id) on delete set null,
+  deal_id    uuid references public.crm_deals(id) on delete set null,
+  title      text not null,
+  type       text not null default 'task',
+  due_date   date,
+  done       boolean not null default false,
+  notes      text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists crm_activities_project_idx on public.crm_activities(project_id);
+
+alter table public.crm_projects   enable row level security;
+alter table public.crm_companies  enable row level security;
+alter table public.crm_contacts   enable row level security;
+alter table public.crm_deals      enable row level security;
+alter table public.crm_activities enable row level security;
+
+drop policy if exists crm_projects_all_same_tenant on public.crm_projects;
+create policy crm_projects_all_same_tenant on public.crm_projects
+  for all using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+drop policy if exists crm_companies_all_same_tenant on public.crm_companies;
+create policy crm_companies_all_same_tenant on public.crm_companies
+  for all using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+drop policy if exists crm_contacts_all_same_tenant on public.crm_contacts;
+create policy crm_contacts_all_same_tenant on public.crm_contacts
+  for all using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+drop policy if exists crm_deals_all_same_tenant on public.crm_deals;
+create policy crm_deals_all_same_tenant on public.crm_deals
+  for all using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+drop policy if exists crm_activities_all_same_tenant on public.crm_activities;
+create policy crm_activities_all_same_tenant on public.crm_activities
+  for all using (tenant_id = public.current_tenant_id())
+  with check (tenant_id = public.current_tenant_id());
+
+grant select, insert, update, delete on public.crm_projects   to authenticated;
+grant select, insert, update, delete on public.crm_companies  to authenticated;
+grant select, insert, update, delete on public.crm_contacts   to authenticated;
+grant select, insert, update, delete on public.crm_deals      to authenticated;
+grant select, insert, update, delete on public.crm_activities to authenticated;
+
+alter table public.crm_projects add column if not exists stages jsonb;
+
+-- =====================================================================
+-- Einladungs-Modell: kein offener Self-Signup in eine fremde Firma.
+-- Ein Admin trägt die E-Mail eines Kollegen ein -> registriert sich diese
+-- Person, landet sie automatisch in der Firma des Admins (statt einer neuen).
+-- =====================================================================
+
+create table if not exists public.invites (
+  id          uuid primary key default gen_random_uuid(),
+  tenant_id   uuid not null references public.tenants(id) on delete cascade,
+  email       text not null,
+  invited_by  uuid references auth.users(id) on delete set null,
+  accepted_at timestamptz,
+  created_at  timestamptz not null default now()
+);
+-- Nur eine offene Einladung pro E-Mail gleichzeitig (verhindert Dubletten).
+create unique index if not exists invites_email_pending_idx on public.invites (lower(email)) where accepted_at is null;
+
+alter table public.invites enable row level security;
+
+drop policy if exists invites_select_same_tenant on public.invites;
+create policy invites_select_same_tenant on public.invites
+  for select using (tenant_id = public.current_tenant_id());
+
+drop policy if exists invites_insert_admin on public.invites;
+create policy invites_insert_admin on public.invites
+  for insert with check (
+    tenant_id = public.current_tenant_id()
+    and exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+  );
+
+drop policy if exists invites_delete_admin on public.invites;
+create policy invites_delete_admin on public.invites
+  for delete using (
+    tenant_id = public.current_tenant_id()
+    and exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+  );
+
+grant select, insert, delete on public.invites to authenticated;
+
+-- provision_profile ERWEITERT: prüft zuerst auf eine offene Einladung für die
+-- E-Mail-Adresse. Falls vorhanden -> Nutzer wird 'member' in der EINLADENDEN
+-- Firma (keine neue Firma). Sonst wie bisher: eigene neue Firma als 'admin'.
+create or replace function public.provision_profile(p_id uuid, p_email text, p_company text default null)
+returns void language plpgsql security definer set search_path = public as $$
+declare new_tenant uuid; inv record;
+begin
+  if exists (select 1 from public.profiles where id = p_id) then
+    return;
+  end if;
+
+  select * into inv from public.invites
+    where lower(email) = lower(p_email) and accepted_at is null
+    limit 1;
+
+  if inv.id is not null then
+    insert into public.profiles (id, tenant_id, role, display_name)
+      values (p_id, inv.tenant_id, 'member', p_email);
+    update public.invites set accepted_at = now() where id = inv.id;
+    return;
+  end if;
+
+  insert into public.tenants (name)
+    values (coalesce(p_company,'Mein Unternehmen'))
+    returning id into new_tenant;
+  insert into public.profiles (id, tenant_id, role, display_name)
+    values (p_id, new_tenant, 'admin', p_email);
+end $$;
+
+-- Wichtig: PostgREST-Schema-Cache aktualisieren, sonst "table not found" trotz erfolgreichem CREATE TABLE.
+notify pgrst, 'reload schema';

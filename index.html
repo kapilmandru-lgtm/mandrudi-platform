@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mandrudi Plattform</title>
-<link rel="stylesheet" href="styles.css?v=5">
+<link rel="stylesheet" href="styles.css?v=10">
 </head>
 <body>
 
@@ -35,6 +35,14 @@
       <img id="brandLogo" class="brand-logo" alt="Mandrudi">
       <span class="brand-name" data-i18n="app_name">Mandrudi Plattform</span>
     </div>
+    <nav id="nav" class="topnav">
+      <button class="nav-item" data-view="crm"><span class="nav-ic">◆</span><span data-i18n="nav_crm">CRM</span></button>
+      <button class="nav-item" data-view="dms"><span class="nav-ic">🗂</span><span data-i18n="nav_dms">Dokumente</span></button>
+      <button class="nav-item active" data-view="dashboard"><span class="nav-ic">▦</span><span data-i18n="nav_dashboard">Übersicht</span></button>
+      <button class="nav-item" data-view="pm"><span class="nav-ic">✔</span><span data-i18n="nav_pm">Projekte</span></button>
+      <button class="nav-item" data-view="team"><span class="nav-ic">☺</span><span data-i18n="nav_team">Team</span></button>
+      <button class="nav-item" data-view="tools"><span class="nav-ic">🧰</span><span data-i18n="nav_tools">Tools &amp; Add-ons</span></button>
+    </nav>
     <div class="topbar-right">
       <select id="langSel" class="lang" aria-label="Sprache">
         <option value="de">DE</option><option value="en">EN</option><option value="fr">FR</option>
@@ -47,22 +55,13 @@
   </header>
 
   <div class="layout">
-    <aside class="sidebar">
-      <nav id="nav">
-        <button class="nav-item active" data-view="dashboard"><span class="nav-ic">▦</span><span data-i18n="nav_dashboard">Übersicht</span></button>
-        <button class="nav-item" data-view="dms"><span class="nav-ic">🗂</span><span data-i18n="nav_dms">Dokumente</span></button>
-        <button class="nav-item" data-view="pm"><span class="nav-ic">✔</span><span data-i18n="nav_pm">Projekte</span></button>
-        <button class="nav-item" data-view="tools"><span class="nav-ic">🧰</span><span data-i18n="nav_tools">Tools &amp; Add-ons</span></button>
-      </nav>
-      <div class="sidebar-foot" data-i18n="phase0">Phase 0 · Gerüst</div>
-    </aside>
-
     <main class="content">
       <!-- Dashboard -->
       <section id="view-dashboard" class="view">
         <h2 data-i18n="dash_hi">Willkommen</h2>
         <p class="lead" data-i18n="dash_sub">Wähle links ein Modul. Dokumente und Projekte kommen als Nächstes; die Tools sind bereits als Add-ons verfügbar.</p>
         <div class="tiles">
+          <button class="tile" data-view="crm"><span class="tile-ic">◆</span><b data-i18n="nav_crm">CRM</b><span data-i18n="dash_crm">Firmen, Kontakte, Deals</span></button>
           <button class="tile" data-view="dms"><span class="tile-ic">🗂</span><b data-i18n="nav_dms">Dokumente</b><span data-i18n="dash_dms">Ablegen, suchen, teilen</span></button>
           <button class="tile" data-view="pm"><span class="tile-ic">✔</span><b data-i18n="nav_pm">Projekte</b><span data-i18n="dash_pm">Aufgaben &amp; Boards</span></button>
           <button class="tile" data-view="tools"><span class="tile-ic">🧰</span><b data-i18n="nav_tools">Tools &amp; Add-ons</b><span data-i18n="dash_tools">16 Rechner &amp; Checks</span></button>
@@ -96,6 +95,16 @@
         </ul>
       </section>
 
+      <!-- CRM -->
+      <section id="view-crm" class="view hidden"></section>
+
+      <!-- Team / Einladungen -->
+      <section id="view-team" class="view hidden">
+        <h2 data-i18n="nav_team">Team</h2>
+        <p class="lead" data-i18n="sub_team">Kollegen einladen &amp; Team verwalten.</p>
+        <div id="teamBox"></div>
+      </section>
+
       <!-- Tools / Add-ons -->
       <section id="view-tools" class="view hidden">
         <h2 data-i18n="nav_tools">Tools &amp; Add-ons</h2>
@@ -117,7 +126,9 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=17"></script>
+<script src="app.js?v=21"></script>
 <script src="dms.js?v=27"></script>
+<script src="pm.js?v=2"></script>
+<script src="crm.js?v=6"></script>
 </body>
 </html>
