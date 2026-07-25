@@ -72,6 +72,8 @@ function applyStaticLang(){
 function uid(){try{return crypto.randomUUID();}catch(e){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}}
 function esc(s){return s==null?"":String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
 function eur(n){return new Intl.NumberFormat("de-DE",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);}
+function workdaysInMonth(year,month){var n=new Date(year,month+1,0).getDate(),c=0;for(var d=1;d<=n;d++){var wd=new Date(year,month,d).getDay();if(wd!==0&&wd!==6)c++;}return c;}
+function monthlyResult(d){var now=new Date();return (+d.value||0)*workdaysInMonth(now.getFullYear(),now.getMonth());}
 function initials(s){return (s||"?").trim().split(/\s+/).map(function(w){return w[0];}).slice(0,2).join("").toUpperCase();}
 function avColor(s){var sum=0;for(var i=0;i<(s||"x").length;i++)sum+=s.charCodeAt(i);return AV[sum%AV.length];}
 function toast(m){var t=$("#crmToast");if(!t)return;t.textContent=m;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(function(){t.classList.remove("show");},1900);}
@@ -406,7 +408,7 @@ function viewDashboard(){
     +'<div class="panel" style="margin-bottom:20px"><div class="ph"><h3>'+tr("d_newInq")+(newInq.length?' <span class="pill" style="background:'+stageOf("lead").color+'22;color:'+stageOf("lead").color+';margin-left:2px">'+newInq.length+'</span>':"")+'</h3><button class="btn sm sec" onclick="MPCRM._go(\'deals\')">'+tr("d_board")+'</button></div>'
     +(newInq.length?'<table><tbody>'+newInq.map(function(d){return '<tr onclick="MPCRM._openDeal(\''+d.id+'\')"><td><b>'+esc(d.title)+'</b><div class="meta muted">'+esc(companyName(d.companyId)||"—")+(d.contactId&&contactName(d.contactId)?" · "+esc(contactName(d.contactId)):"")+'</div></td>'
       +'<td class="right muted" style="font-size:12px;white-space:nowrap">'+(d.createdAt?new Date(d.createdAt).toLocaleDateString("de-DE",{day:"2-digit",month:"short"}):"")+'</td>'
-      +'<td class="right"><b>'+(d.value?eur(d.value):"")+'</b></td></tr>';}).join("")+'</tbody></table>':emptyBox(tr("d_noNewInq")))
+      +'<td class="right"><b title="Monatsergebnis">'+(d.value?eur(monthlyResult(d)):"")+'</b></td></tr>';}).join("")+'</tbody></table>':emptyBox(tr("d_noNewInq")))
     +'</div>'
     +'<div class="panel" style="margin-bottom:20px"><div class="ph"><h3>🎯 Nächste Schritte'+(stale.length?' <span class="pill" style="background:#e0483d22;color:var(--red);margin-left:2px">'+stale.length+'</span>':"")+'</h3></div>'
     +(stale.length?'<table><tbody>'+stale.map(function(x){return '<tr onclick="MPCRM._openDeal(\''+x.d.id+'\')"><td><b>'+esc(x.d.title)+'</b><div class="meta muted">'+esc(companyName(x.d.companyId)||contactName(x.d.contactId)||"—")+'</div></td>'
@@ -418,7 +420,7 @@ function viewDashboard(){
     +'<div class="panel"><div class="ph"><h3>'+tr("d_latest")+'</h3><button class="btn sm sec" onclick="MPCRM._go(\'deals\')">'+tr("d_pipByPhase").split(" ")[0]+'</button></div>'
     +(recentDeals.length?'<table><tbody>'+recentDeals.map(function(d){return '<tr onclick="MPCRM._openDeal(\''+d.id+'\')"><td><b>'+esc(d.title)+'</b><div class="meta muted">'+esc(companyName(d.companyId)||"—")+'</div></td>'
       +'<td class="right"><span class="pill" style="background:'+stageOf(d.stage).color+'22;color:'+stageOf(d.stage).color+'">'+esc(stageOf(d.stage).name)+'</span></td>'
-      +'<td class="right"><b>'+eur(d.value)+'</b></td></tr>';}).join("")+'</tbody></table>':emptyBox(tr("d_noDeals")))+'</div></div>';
+      +'<td class="right"><b title="Monatsergebnis">'+eur(monthlyResult(d))+'</b></td></tr>';}).join("")+'</tbody></table>':emptyBox(tr("d_noDeals")))+'</div></div>';
 }
 function toggleStage(id){hiddenStages.has(id)?hiddenStages.delete(id):hiddenStages.add(id); localStorage.setItem("crm-hiddenStages",JSON.stringify([...hiddenStages])); renderAll();}
 function showAllStages(){hiddenStages.clear(); localStorage.setItem("crm-hiddenStages","[]"); renderAll();}
@@ -495,7 +497,7 @@ function viewDeals(){
         +items.map(function(d){return '<div class="card '+(sel.has(d.id)?"selrow":"")+' '+(d.done?"donecard":"")+'" draggable="true" ondragstart="MPCRM._dragStart(event,\''+d.id+'\')" onclick="MPCRM._openDeal(\''+d.id+'\')">'
           +'<span style="float:right">'+selCheckbox(d.id)+'</span>'
           +'<div class="t">'+esc(d.title)+'</div>'
-          +'<div class="v">'+eur(d.value)+' <span class="pill" style="background:'+scoreColor(dealScore(d))+'22;color:'+scoreColor(dealScore(d))+';font-size:11px;margin-left:4px" title="Lead-Score">★ '+dealScore(d)+'</span></div>'
+          +'<div class="v" title="Monatsergebnis: Arbeitstage im aktuellen Monat × Tagesrate ('+eur(d.value)+'/Tag)">'+eur(monthlyResult(d))+' <span class="pill" style="background:'+scoreColor(dealScore(d))+'22;color:'+scoreColor(dealScore(d))+';font-size:11px;margin-left:4px" title="Lead-Score">★ '+dealScore(d)+'</span></div>'
           +'<div class="c">'+esc(companyName(d.companyId)||contactName(d.contactId)||"—")+'</div>'
           +(d.candidate?'<div class="c">👤 '+esc(d.candidate)+'</div>':"")
           +(d.closeDate?'<div class="c">◷ '+new Date(d.closeDate).toLocaleDateString("de-DE")+'</div>':"")
@@ -571,7 +573,7 @@ function openContact(id){
     +'<div class="kv"><div class="k">Titel</div><div class="v">'+esc(c.title||"—")+'</div></div>'
     +'<div class="kv"><div class="k">Tags</div><div class="v">'+((c.tags||[]).map(function(t){return '<span class="tag">'+esc(t)+'</span>';}).join("")||"—")+'</div></div>'
     +(c.notes?'<div class="detail-sec"><h4>Notizen</h4><div>'+esc(c.notes)+'</div></div>':"")
-    +(deals.length?'<div class="detail-sec"><h4>Deals</h4>'+deals.map(function(d){return '<div class="kv"><div class="v">'+esc(d.title)+'</div><div class="right"><span class="pill" style="background:'+stageOf(d.stage).color+'22;color:'+stageOf(d.stage).color+'">'+esc(stageOf(d.stage).name)+'</span> <b>'+eur(d.value)+'</b></div></div>';}).join("")+'</div>':"")
+    +(deals.length?'<div class="detail-sec"><h4>Deals</h4>'+deals.map(function(d){return '<div class="kv"><div class="v">'+esc(d.title)+'</div><div class="right"><span class="pill" style="background:'+stageOf(d.stage).color+'22;color:'+stageOf(d.stage).color+'">'+esc(stageOf(d.stage).name)+'</span> <b title="Monatsergebnis">'+eur(monthlyResult(d))+'</b></div></div>';}).join("")+'</div>':"")
     +'</div><div class="mf"><button class="btn sec" onclick="MPCRM._close()">Schließen</button><button class="btn" onclick="MPCRM._contactForm(\''+c.id+'\')">Bearbeiten</button></div>');
 }
 
@@ -600,7 +602,7 @@ function openCompany(id){
     +'<div class="kv"><div class="k">Adresse</div><div class="v">'+esc(c.address||"—")+'</div></div>'
     +(c.notes?'<div class="detail-sec"><h4>Notizen</h4><div>'+esc(c.notes)+'</div></div>':"")
     +(cts.length?'<div class="detail-sec"><h4>Kontakte ('+cts.length+')</h4>'+cts.map(function(x){return '<div class="kv"><div class="v">'+esc(x.firstName)+' '+esc(x.lastName)+'</div><div class="muted">'+esc(x.position||"")+'</div></div>';}).join("")+'</div>':"")
-    +(deals.length?'<div class="detail-sec"><h4>Deals ('+deals.length+')</h4>'+deals.map(function(d){return '<div class="kv"><div class="v">'+esc(d.title)+'</div><div class="right"><span class="pill" style="background:'+stageOf(d.stage).color+'22;color:'+stageOf(d.stage).color+'">'+esc(stageOf(d.stage).name)+'</span> <b>'+eur(d.value)+'</b></div></div>';}).join("")+'</div>':"")
+    +(deals.length?'<div class="detail-sec"><h4>Deals ('+deals.length+')</h4>'+deals.map(function(d){return '<div class="kv"><div class="v">'+esc(d.title)+'</div><div class="right"><span class="pill" style="background:'+stageOf(d.stage).color+'22;color:'+stageOf(d.stage).color+'">'+esc(stageOf(d.stage).name)+'</span> <b title="Monatsergebnis">'+eur(monthlyResult(d))+'</b></div></div>';}).join("")+'</div>':"")
     +'</div><div class="mf"><button class="btn sec" onclick="MPCRM._close()">Schließen</button><button class="btn" onclick="MPCRM._companyForm(\''+c.id+'\')">Bearbeiten</button></div>');
 }
 
