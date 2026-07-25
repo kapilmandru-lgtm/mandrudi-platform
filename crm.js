@@ -377,16 +377,17 @@ function toggleDealDone(id,ch){var d=byId(db.deals,id); if(d){d.done=ch;schedule
 
 function viewDashboard(){
   var open=db.deals.filter(function(d){return d.stage!=="gewonnen"&&d.stage!=="verloren";});
-  var pipe=open.reduce(function(s,d){return s+(+d.value||0);},0);
+  var pipeRaw=open.reduce(function(s,d){return s+(+d.value||0);},0);
+  var pipe=open.reduce(function(s,d){return s+monthlyResult(d);},0);
   var won=db.deals.filter(function(d){return d.stage==="gewonnen";});
-  var wonSum=won.reduce(function(s,d){return s+(+d.value||0);},0);
-  var avgRate=open.length?Math.round(pipe/open.length):0;
+  var wonSum=won.reduce(function(s,d){return s+monthlyResult(d);},0);
+  var avgRate=open.length?Math.round(pipeRaw/open.length):0;
   var openAct=db.activities.filter(function(a){return !a.done;});
   var upcoming=openAct.slice().sort(function(a,b){return (a.dueDate||"9").localeCompare(b.dueDate||"9");}).slice(0,6);
   var recentDeals=db.deals.slice().sort(function(a,b){return b.createdAt-a.createdAt;}).slice(0,5);
   var newInq=db.deals.filter(function(d){return d.stage==="lead";}).sort(function(a,b){return b.createdAt-a.createdAt;}).slice(0,6);
   var stale=staleOpenDeals();
-  var stageData=curStages().map(function(s){var it=db.deals.filter(function(d){return d.stage===s.id;});return {s:s,n:it.length,sum:it.reduce(function(a,d){return a+(+d.value||0);},0)};});
+  var stageData=curStages().map(function(s){var it=db.deals.filter(function(d){return d.stage===s.id;});return {s:s,n:it.length,sum:it.reduce(function(a,d){return a+monthlyResult(d);},0)};});
   var visStages=stageData.filter(function(x){return !hiddenStages.has(x.s.id);});
   var maxSum=Math.max.apply(Math,[1].concat(visStages.map(function(x){return x.sum;})));
   $("#crmContent").innerHTML='<div class="stats">'
