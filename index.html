@@ -2,9 +2,22 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Mandrudi Plattform</title>
-<link rel="stylesheet" href="styles.css?v=10">
+
+<!-- ===== Als App auf dem iPhone/Android-Home-Bildschirm ===== -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#12314c">
+<meta name="color-scheme" content="light dark">
+<!-- iOS kennt kein Manifest-Display: diese drei Zeilen machen den Vollbild-Start -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mandrudi">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<link rel="icon" href="assets/icon-192.png" sizes="192x192" type="image/png">
+
+<link rel="stylesheet" href="styles.css?v=11">
 </head>
 <body>
 
@@ -59,7 +72,7 @@
       <!-- Dashboard -->
       <section id="view-dashboard" class="view">
         <h2 data-i18n="dash_hi">Willkommen</h2>
-        <p class="lead" data-i18n="dash_sub">Wähle links ein Modul. Dokumente und Projekte kommen als Nächstes; die Tools sind bereits als Add-ons verfügbar.</p>
+        <p class="lead" data-i18n="dash_sub">Wähle ein Modul. Dokumente, CRM und Projekte sind da; die Tools kommen als Add-ons dazu.</p>
         <div class="tiles">
           <button class="tile" data-view="crm"><span class="tile-ic">◆</span><b data-i18n="nav_crm">CRM</b><span data-i18n="dash_crm">Firmen, Kontakte, Deals</span></button>
           <button class="tile" data-view="dms"><span class="tile-ic">🗂</span><b data-i18n="nav_dms">Dokumente</b><span data-i18n="dash_dms">Ablegen, suchen, teilen</span></button>
@@ -126,9 +139,19 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=21"></script>
-<script src="dms.js?v=27"></script>
+<script src="app.js?v=22"></script>
+<script src="dms.js?v=28"></script>
 <script src="pm.js?v=2"></script>
 <script src="crm.js?v=9"></script>
+
+<script>
+/* Service Worker: App startet auch ohne Netz. Nur ueber https bzw. localhost moeglich
+   (auf platform.mandrudi.com gegeben) – file:// wuerde hier still scheitern. */
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").catch(function () { /* ohne SW laeuft alles normal weiter */ });
+  });
+}
+</script>
 </body>
 </html>

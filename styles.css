@@ -249,3 +249,118 @@ h1,h2{letter-spacing:-.02em}
 /* ===== CRM ===== */
 .crm-list{display:flex;flex-direction:column;gap:8px}
 .dot-s{display:inline-block;width:8px;height:8px;border-radius:50%}
+
+/* =========================================================================
+   iPhone / Touch (v11)
+   Eine Codebasis, zwei Bildschirmgroessen: Desktop bleibt unveraendert, ab
+   760px wird die Oberflaeche auf Daumenbedienung umgebaut.
+   Merkposten iOS: 100vh liegt unter der Safari-Leiste (-> dvh), Eingabefelder
+   unter 16px loesen einen Auto-Zoom aus, und env(safe-area-*) haelt Inhalte
+   aus Notch und Home-Indicator heraus.
+   ========================================================================= */
+
+/* Wird per JS auf <html> gesetzt, sobald die App vom Home-Bildschirm startet */
+:root.mp-standalone .mp-install-tip{display:none !important}
+
+/* Helfer, die dms.js benutzt: Zweitrang-Bedienelemente sitzen auf dem Desktop
+   dank display:contents exakt dort, wo sie vorher sassen. */
+.dms-bar-sec,.doc-act-sec{display:contents}
+.mp-mob{display:none}
+
+@media (hover:none){
+  .dms-hover{display:none !important}      /* Hover-Thumbnail ergibt ohne Maus keinen Sinn */
+  .tile:hover{transform:none}
+  .btn:hover{border-color:var(--line)}
+  .btn-primary:hover{background:var(--accent);border-color:var(--accent)}
+}
+
+@media (max-width:760px){
+  .mp-mob{display:inline-flex}
+
+  /* --- Kopfzeile: nur Marke + Konto, Navigation wandert nach unten --- */
+  .topbar{min-height:calc(52px + env(safe-area-inset-top));gap:10px;
+    padding:env(safe-area-inset-top) max(12px,env(safe-area-inset-right)) 0 max(12px,env(safe-area-inset-left))}
+  .brand-name,.user-email{display:none}
+  .brand-logo{height:26px}
+  .topbar-right{gap:7px}
+
+  /* --- Navigation als Tab-Leiste am unteren Rand (Daumenzone) --- */
+  .topnav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--navy);
+    display:flex;justify-content:space-between;gap:0;overflow-x:auto;overflow-y:hidden;
+    border-top:1px solid rgba(255,255,255,.14);
+    padding:5px max(4px,env(safe-area-inset-right)) calc(5px + env(safe-area-inset-bottom)) max(4px,env(safe-area-inset-left))}
+  .topnav .nav-item{flex:1 1 0;min-width:56px;flex-direction:column;gap:2px;padding:6px 3px;border-radius:10px}
+  .topnav .nav-item span:not(.nav-ic){display:block;font-size:10px;font-weight:600;line-height:1.15;
+    max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .topnav .nav-ic{width:auto;font-size:18px;line-height:1}
+
+  /* Platz fuer die Tab-Leiste, damit der letzte Beleg nicht darunter verschwindet */
+  .content{padding:16px max(14px,env(safe-area-inset-right)) calc(84px + env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left))}
+  .view h2{font-size:20px}
+
+  /* --- Eingaben: 16px, sonst zoomt iOS beim Antippen ins Feld --- */
+  .auth-form input,.dms-search,.dms-sel,.pm-input,.crm-input,
+  input[type="text"],input[type="email"],input[type="password"],input[type="search"],input[type="number"],textarea,select{font-size:16px}
+  .btn{min-height:42px}
+  .btn-sm{min-height:38px;padding:8px 12px;font-size:13.5px}
+  .auth-card{padding:26px 20px}
+
+  /* --- DMS: Werkzeugleiste --- */
+  .dms-bar{gap:7px;margin:14px 0 10px}
+  .dms-search{flex:1 1 100%;order:-1;min-width:0}
+  .dms-bar-sec{display:none;flex:1 1 100%;flex-wrap:wrap;gap:7px}
+  .dms-bar-sec.open{display:flex}
+  .dms-bar .dms-sel{flex:1 1 auto}
+
+  /* --- DMS: Ordnerbaum als ausklappbare Schublade --- */
+  .dms-wrap{display:block}
+  .dms-tree{display:none;position:static;flex:none;max-height:50vh;margin-bottom:12px}
+  .dms-wrap.tree-open .dms-tree{display:block}
+  .tree-item{padding:9px 6px}            /* groessere Trefferflaeche */
+
+  /* --- DMS: Belegkarten --- */
+  .doc{padding:12px;gap:4px 10px}
+  .doc-main{flex:1 1 100%;min-width:0}
+  .doc-name b{white-space:normal;overflow-wrap:anywhere;line-height:1.3}
+  .doc-check{width:22px;height:22px;margin-top:2px}
+  .doc-act{gap:7px;margin-top:10px}
+  .doc-act-sec{display:none;flex:1 1 100%;flex-wrap:wrap;gap:7px}
+  .doc-act-sec.open{display:flex}
+  .dms-move{max-width:none;flex:1 1 100%}
+  .dms-selbar{gap:7px}
+  .dms-selbar .dms-sel{flex:1 1 100%}
+
+  /* --- Vorschau/Charts: Vollbild --- */
+  .dms-modal{padding:0;align-items:stretch}
+  .dms-modal-inner{width:100%;max-width:100vw;max-height:100vh;border-radius:0;border:0}
+  .dms-modal-bar{padding:calc(10px + env(safe-area-inset-top)) 12px 10px;flex-wrap:wrap;gap:7px}
+  .dms-modal-bar b{max-width:100%;flex:1 1 100%}
+  .dms-modal-body{padding:8px;min-width:0}
+  .dms-modal-img{max-width:100vw;max-height:70vh}
+  .dms-modal-frame{width:100vw;height:70vh}
+  .chart-body{width:auto;max-width:100%}
+
+  /* --- Eingebettete Tools --- */
+  .tool-frame{height:calc(100vh - 220px);height:calc(100dvh - 220px)}
+  .tiles{grid-template-columns:1fr 1fr;gap:10px}
+  .tile{padding:14px}
+  .tool-grid{grid-template-columns:1fr}
+}
+
+/* Schmale Geraete: sechs Tabs brauchen kleinere Schrift, sonst wird "Dokumente" abgeschnitten */
+@media (max-width:400px){
+  .topnav .nav-item span:not(.nav-ic){font-size:9px}
+}
+/* Sehr schmale Geraete (iPhone SE & Co.) */
+@media (max-width:360px){
+  .tiles{grid-template-columns:1fr}
+}
+
+/* --- Hinweis "Zum Home-Bildschirm hinzufuegen" (nur iOS-Safari, einmalig) --- */
+.mp-install-tip{position:fixed;left:10px;right:10px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:40;
+  background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;
+  box-shadow:var(--shadow);padding:13px 14px;display:flex;align-items:flex-start;gap:10px;font-size:13.5px}
+.mp-install-tip p{margin:0;flex:1;line-height:1.45}
+.mp-install-tip b{display:block;margin-bottom:2px}
+.mp-install-tip .mp-tip-x{flex:none;border:0;background:transparent;color:var(--muted);font-size:20px;line-height:1;
+  cursor:pointer;padding:0 2px;min-height:auto}

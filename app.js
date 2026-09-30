@@ -28,7 +28,8 @@ var I18N={
  de:{app_name:"Mandrudi Plattform",auth_sub:"Modulare Werkzeuge für Supply Chain, Dokumente & Projekte.",
   auth_email:"E-Mail",auth_pass:"Passwort",auth_login:"Anmelden",auth_register:"Registrieren",auth_demo:"Ohne Konto ansehen (Demo)",
   logout:"Abmelden",nav_dashboard:"Übersicht",nav_dms:"Dokumente",nav_pm:"Projekte",nav_crm:"CRM",dash_crm:"Firmen, Kontakte, Deals",nav_team:"Team",sub_team:"Kollegen einladen & Team verwalten.",nav_tools:"Tools & Add-ons",
-  phase0:"Phase 0 · Gerüst",dash_hi:"Willkommen",dash_sub:"Wähle links ein Modul. Dokumente und Projekte kommen als Nächstes; die Tools sind bereits als Add-ons verfügbar.",
+  inst_t:"Als App aufs iPhone",inst_b:"Unten auf „Teilen“ tippen, dann „Zum Home-Bildschirm“ – danach startet die Plattform im Vollbild mit eigenem Symbol.",inst_x:"Hinweis schließen",
+  phase0:"Phase 0 · Gerüst",dash_hi:"Willkommen",dash_sub:"Wähle ein Modul. Dokumente, CRM und Projekte sind da; die Tools kommen als Add-ons dazu.",
   dash_dms:"Ablegen, suchen, teilen",dash_pm:"Aufgaben & Boards",dash_tools:"16 Rechner & Checks",soon:"In Phase 1",
   dms_intro:"Das Dokumentenmanagement (DMS) wird hier gebaut. Geplant:",
   dms_f1:"PDF hochladen (Original behalten)",dms_f2:"Suche, Ordner & Tags",dms_f3:"Versionen, unveränderbare Ablage, Aufbewahrungsfristen (GoBD)",
@@ -40,7 +41,8 @@ var I18N={
  en:{app_name:"Mandrudi Platform",auth_sub:"Modular tools for supply chain, documents & projects.",
   auth_email:"Email",auth_pass:"Password",auth_login:"Sign in",auth_register:"Register",auth_demo:"View without account (demo)",
   logout:"Sign out",nav_dashboard:"Overview",nav_dms:"Documents",nav_pm:"Projects",nav_tools:"Tools & Add-ons",
-  phase0:"Phase 0 · Skeleton",dash_hi:"Welcome",dash_sub:"Pick a module on the left. Documents and projects are next; the tools are already available as add-ons.",
+  inst_t:"Add to your iPhone",inst_b:"Tap „Share“ at the bottom, then „Add to Home Screen“ – the platform then opens full screen with its own icon.",inst_x:"Dismiss",
+  phase0:"Phase 0 · Skeleton",dash_hi:"Welcome",dash_sub:"Pick a module. Documents, CRM and projects are ready; the tools come as add-ons.",
   dash_dms:"Store, search, share",dash_pm:"Tasks & boards",dash_tools:"16 calculators & checks",soon:"In phase 1",
   dms_intro:"The document management (DMS) is built here. Planned:",tools_intro:"Your existing tools – enable as needed. Open active tools right here.",
   pm_intro:"Project management (PM) docks onto the same core as the second module. Planned:",
@@ -48,7 +50,7 @@ var I18N={
  fr:{app_name:"Plateforme Mandrudi",auth_sub:"Outils modulaires pour supply chain, documents & projets.",
   auth_email:"E-mail",auth_pass:"Mot de passe",auth_login:"Se connecter",auth_register:"S'inscrire",auth_demo:"Voir sans compte (démo)",
   logout:"Déconnexion",nav_dashboard:"Aperçu",nav_dms:"Documents",nav_pm:"Projets",nav_tools:"Outils & Add-ons",
-  phase0:"Phase 0 · Ossature",dash_hi:"Bienvenue",dash_sub:"Choisissez un module à gauche. Documents et projets à venir ; les outils sont déjà disponibles en add-ons.",
+  phase0:"Phase 0 · Ossature",dash_hi:"Bienvenue",dash_sub:"Choisissez un module. Documents, CRM et projets sont prêts ; les outils sont disponibles en add-ons.",
   dash_dms:"Classer, chercher, partager",dash_pm:"Tâches & tableaux",dash_tools:"16 calculateurs & checks",soon:"En phase 1",
   dms_intro:"La gestion documentaire (DMS) se construit ici. Prévu :",tools_intro:"Vos outils existants – à activer selon les besoins. Ouvrez les outils actifs ici.",
   pm_intro:"La gestion de projet (PM) s'ajoute au même cœur comme deuxième module. Prévu :",
@@ -56,7 +58,7 @@ var I18N={
  es:{app_name:"Plataforma Mandrudi",auth_sub:"Herramientas modulares para supply chain, documentos y proyectos.",
   auth_email:"Correo",auth_pass:"Contraseña",auth_login:"Iniciar sesión",auth_register:"Registrarse",auth_demo:"Ver sin cuenta (demo)",
   logout:"Cerrar sesión",nav_dashboard:"Resumen",nav_dms:"Documentos",nav_pm:"Proyectos",nav_tools:"Herramientas & Add-ons",
-  phase0:"Fase 0 · Estructura",dash_hi:"Bienvenido",dash_sub:"Elija un módulo a la izquierda. Documentos y proyectos vienen después; las herramientas ya están disponibles como add-ons.",
+  phase0:"Fase 0 · Estructura",dash_hi:"Bienvenido",dash_sub:"Elija un módulo. Documentos, CRM y proyectos están listos; las herramientas están disponibles como add-ons.",
   dash_dms:"Guardar, buscar, compartir",dash_pm:"Tareas y tableros",dash_tools:"16 calculadoras y checks",soon:"En fase 1",
   dms_intro:"La gestión documental (DMS) se construye aquí. Previsto:",tools_intro:"Sus herramientas existentes – actívelas según necesite. Abra las activas aquí.",
   pm_intro:"La gestión de proyectos (PM) se acopla al mismo núcleo como segundo módulo. Previsto:",
@@ -64,7 +66,7 @@ var I18N={
  it:{app_name:"Piattaforma Mandrudi",auth_sub:"Strumenti modulari per supply chain, documenti e progetti.",
   auth_email:"E-mail",auth_pass:"Password",auth_login:"Accedi",auth_register:"Registrati",auth_demo:"Guarda senza account (demo)",
   logout:"Esci",nav_dashboard:"Panoramica",nav_dms:"Documenti",nav_pm:"Progetti",nav_tools:"Strumenti & Add-on",
-  phase0:"Fase 0 · Struttura",dash_hi:"Benvenuto",dash_sub:"Scegli un modulo a sinistra. Documenti e progetti in arrivo; gli strumenti sono già disponibili come add-on.",
+  phase0:"Fase 0 · Struttura",dash_hi:"Benvenuto",dash_sub:"Scegli un modulo. Documenti, CRM e progetti sono pronti; gli strumenti sono disponibili come add-on.",
   dash_dms:"Archivia, cerca, condividi",dash_pm:"Attività e board",dash_tools:"16 calcolatori e check",soon:"In fase 1",
   dms_intro:"La gestione documentale (DMS) si costruisce qui. Previsto:",tools_intro:"I tuoi strumenti esistenti – attivali all'occorrenza. Apri quelli attivi qui.",
   pm_intro:"La gestione progetti (PM) si aggancia allo stesso nucleo come secondo modulo. Previsto:",
@@ -72,7 +74,7 @@ var I18N={
  ro:{app_name:"Platforma Mandrudi",auth_sub:"Instrumente modulare pentru supply chain, documente și proiecte.",
   auth_email:"E-mail",auth_pass:"Parolă",auth_login:"Autentificare",auth_register:"Înregistrare",auth_demo:"Vizualizare fără cont (demo)",
   logout:"Deconectare",nav_dashboard:"Prezentare",nav_dms:"Documente",nav_pm:"Proiecte",nav_tools:"Instrumente & Add-on-uri",
-  phase0:"Faza 0 · Schelet",dash_hi:"Bun venit",dash_sub:"Alegeți un modul în stânga. Documente și proiecte urmează; instrumentele sunt deja disponibile ca add-on-uri.",
+  phase0:"Faza 0 · Schelet",dash_hi:"Bun venit",dash_sub:"Alegeți un modul. Documente, CRM și proiecte sunt gata; instrumentele sunt disponibile ca add-on-uri.",
   dash_dms:"Stocare, căutare, partajare",dash_pm:"Sarcini și panouri",dash_tools:"16 calculatoare și check-uri",soon:"În faza 1",
   dms_intro:"Managementul documentelor (DMS) se construiește aici. Planificat:",tools_intro:"Instrumentele existente – activați după nevoie. Deschideți-le pe cele active aici.",
   pm_intro:"Managementul de proiect (PM) se conectează la același nucleu ca al doilea modul. Planificat:",
@@ -205,7 +207,13 @@ function enterApp(email,user){
   document.getElementById("app").classList.remove("hidden");
   document.getElementById("userEmail").textContent=email||"";
   initMP();
-  show("dashboard");
+  show(startView());
+}
+// Startansicht: ?view=dms kommt vom App-Kurzbefehl "Dokumente" auf dem Home-Bildschirm
+function startView(){
+  var ok={dashboard:1,dms:1,pm:1,crm:1,team:1,tools:1}, v="";
+  try{ v=new URLSearchParams(location.search).get("view")||""; }catch(e){}
+  return ok[v]?v:"dashboard";
 }
 // Gemeinsame API für die Module (DMS, PM, …)
 function initMP(){
@@ -295,7 +303,34 @@ function init(){
   // nav
   document.querySelectorAll("[data-view]").forEach(function(b){b.addEventListener("click",function(){show(b.getAttribute("data-view"));});});
   document.getElementById("frameBack").onclick=function(){document.getElementById("toolFrame").src="about:blank";show("tools");};
-  renderTools(); loadLogo(); initAuth();
+  renderTools(); loadLogo(); initMobile(); initAuth();
+}
+
+/* ---- iPhone/Android: Home-Bildschirm ---- */
+function isStandalone(){
+  return (window.navigator.standalone===true) ||
+         (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+}
+function initMobile(){
+  if(isStandalone()) document.documentElement.classList.add("mp-standalone");
+
+  // Hinweis nur dort, wo er stimmt: iPhone/iPad in Safari, noch nicht installiert,
+  // und nur einmal – wer ihn wegklickt, sieht ihn nicht wieder.
+  var ios=/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+          (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1); // iPadOS meldet sich als Mac
+  var safari=/^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(navigator.userAgent);
+  var seen=false; try{ seen=localStorage.getItem("mp-installtip")==="off"; }catch(e){}
+  if(!ios || !safari || isStandalone() || seen) return;
+
+  var box=document.createElement("div"); box.className="mp-install-tip";
+  var p=document.createElement("p");
+  p.appendChild(Object.assign(document.createElement("b"),{textContent:t("inst_t")}));
+  p.appendChild(document.createTextNode(t("inst_b")));
+  var x=document.createElement("button"); x.className="mp-tip-x"; x.type="button";
+  x.setAttribute("aria-label",t("inst_x")); x.textContent="\u00d7";
+  x.onclick=function(){ box.remove(); try{localStorage.setItem("mp-installtip","off");}catch(e){} };
+  box.appendChild(p); box.appendChild(x);
+  document.body.appendChild(box);
 }
 if(document.readyState!=="loading")init(); else document.addEventListener("DOMContentLoaded",init);
 })();

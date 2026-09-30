@@ -18,6 +18,68 @@ function isAuthErr(err){var m=((err&&err.message)||err||"")+""; return /permissi
 function handleErr(err,fallback){ if(isAuthErr(err)){ if(MP().requireLogin)MP().requireLogin(); return true; } msg(fallback+((err&&err.message)?(": "+err.message):""),true); return false; }
 function uuid(){try{return crypto.randomUUID();}catch(e){return Date.now()+"_"+Math.floor(Math.random()*1e9);}}
 
+/* ============ Handy-Betrieb (iPhone/iPad/Android) ============
+   Ein einziger Schalter entscheidet ueber alles Touch-Spezifische: Kamera-Knopf,
+   Teilen-Menue statt Download, kein Hover-Vorschaubild. Absichtlich am Zeigergeraet
+   festgemacht und nicht am User-Agent – Fenstergroesse allein sagt nichts ueber
+   Kamera oder Finger aus. */
+function isTouch(){ try{ return window.matchMedia("(pointer:coarse)").matches; }catch(e){ return false; } }
+
+var UPLOAD_MAX_PX=2000, UPLOAD_Q=0.82, OCR_MAX_PX=1600;
+function isImageFile(f){ return /^image\//.test((f&&f.type)||"") || isImgName(f&&f.name); }
+// Aufbereiten lohnt bei iPhone-Fotos: HEIC zeigt kein Desktop-Browser an, und 12 MP
+// kosten Upload-Zeit, ohne dem Auslesen zu helfen.
+function needsPrepare(f){
+  if(!isImageFile(f)) return false;
+  var n=(f.name||"")+" "+(f.type||"");
+  return /heic|heif/i.test(n) || f.size>1200000;
+}
+function canvasToBlob(cv,type,q){
+  return new Promise(function(res,rej){
+    if(cv.toBlob) cv.toBlob(function(b){ b?res(b):rej(new Error("Bild konnte nicht umgewandelt werden.")); },type,q);
+    else rej(new Error("Canvas kann keine Datei erzeugen."));
+  });
+}
+async function prepareForUpload(f){
+  if(!needsPrepare(f)) return f;
+  try{
+    var img=await blobToImage(f);
+    var w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+    if(!w||!h) return f;
+    var sc=Math.min(1, UPLOAD_MAX_PX/Math.max(w,h));
+    var cv=document.createElement("canvas"); cv.width=Math.round(w*sc); cv.height=Math.round(h*sc);
+    cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+    var blob=await canvasToBlob(cv,"image/jpeg",UPLOAD_Q);
+    var wasHeic=/heic|heif/i.test((f.name||"")+" "+(f.type||""));
+    if(!blob) return f;
+    if(blob.size>=f.size && !wasHeic) return f;          // nichts gewonnen -> Original behalten
+    var name=(f.name||"foto").replace(/\.[A-Za-z0-9]+$/,"")+".jpg";
+    return new File([blob],name,{type:"image/jpeg",lastModified:(f.lastModified||Date.now())});
+  }catch(e){ return f; }                                  // im Zweifel das Original hochladen
+}
+
+/* Datei sichern: am Handy ueber das System-Teilen-Menue, sonst klassischer Download.
+   iOS hat keinen Download-Ordner im Browsersinn – in der installierten App laeuft ein
+   a[download] ins Leere, waehrend navigator.share die Datei nach "Dateien", Mail oder
+   WhatsApp gibt. Am Desktop bleibt alles wie bisher. */
+function blobToFile(blob,name){
+  // Typ notfalls aus der Endung ableiten: iOS entscheidet am MIME-Typ, ob es den
+  // Beleg in der Vorschau zeigt oder nur als namenlose Datei weiterreicht.
+  var type=blob.type||guessType(name)||"application/octet-stream";
+  try{ return new File([blob],name||"datei",{type:type}); }catch(e){ return null; }
+}
+function canShareFiles(f){
+  try{ return !!(f && navigator.share && navigator.canShare && navigator.canShare({files:[f]})); }catch(e){ return false; }
+}
+async function saveOrShare(blob,name,title){
+  var f=blobToFile(blob,name);
+  if(isTouch() && canShareFiles(f)){
+    try{ await navigator.share({files:[f],title:title||name}); return "shared"; }
+    catch(e){ if(e&&e.name==="AbortError") return "cancelled"; }   // abgebrochen -> nicht zusaetzlich herunterladen
+  }
+  triggerDownload(blob,name); return "downloaded";
+}
+
 /* ---------- Verschlüsselung (AES-GCM, clientseitig, Code nie an Supabase gesendet) ----------
    Ablage: [Magic "MPENC1"(6 Byte)][Salt(16)][IV(12)][Chiffretext] als Ersatz fuer den
    Original-Dateiinhalt im selben Storage-Objekt; is_encrypted=true markiert es in der DB. */
@@ -192,8 +254,20 @@ function open(){
   wrap.appendChild(tree); wrap.appendChild(main);
 
   var bar=el("div","dms-bar");
-  var up=el("button","btn btn-primary","Hochladen"); var fileIn=el("input"); fileIn.type="file"; fileIn.multiple=true; fileIn.style.display="none";
+
+  // Kamera: nur wo es eine gibt. capture="environment" oeffnet auf dem iPhone direkt
+  // die Rueckkamera statt der Fotoauswahl – ein Tipp, ein Beleg.
+  var camIn=el("input"); camIn.type="file"; camIn.accept="image/*"; camIn.setAttribute("capture","environment"); camIn.style.display="none";
+  camIn.onchange=function(){ var fs=Array.prototype.slice.call(camIn.files); camIn.value=""; if(fs.length)doUpload(fs); };
+  var cam=el("button","btn btn-primary","\ud83d\udcf7 Foto"); cam.title="Beleg mit der Kamera aufnehmen";
+  cam.onclick=function(){camIn.click();};
+
+  var up=el("button","btn"+(isTouch()?"":" btn-primary"),"Hochladen"); var fileIn=el("input"); fileIn.type="file"; fileIn.multiple=true; fileIn.style.display="none";
   up.onclick=function(){fileIn.click();}; fileIn.onchange=function(){ var fs=Array.prototype.slice.call(fileIn.files); fileIn.value=""; if(fs.length)doUpload(fs); };
+
+  // Am Handy liegt der Ordnerbaum in einer Schublade, sonst frisst er den halben Bildschirm
+  var treeBtn=el("button","btn mp-mob","\ud83d\uddc2 Ordner"); treeBtn.type="button"; treeBtn.id="dms-treebtn";
+  treeBtn.onclick=function(){ wrap.classList.toggle("tree-open"); treeBtn.classList.toggle("btn-primary",wrap.classList.contains("tree-open")); };
   var nf=el("button","btn","+ Ordner"); nf.title="Neuen Ordner im aktuellen Ordner anlegen"; nf.onclick=newFolder;
   var zip=el("button","btn","Ordner als ZIP"); zip.onclick=downloadZip;
   var search=el("input","dms-search"); search.placeholder="Suchen..."; search.oninput=function(){S.q=search.value.trim(); clearTimeout(search._t); search._t=setTimeout(loadDocs,250);};
@@ -210,7 +284,20 @@ function open(){
   var ana=el("button","btn","Analyse"); ana.onclick=analyze;
   var charts=el("button","btn","Charts"); charts.onclick=openCharts;
 
-  [up,fileIn,nf,zip,ana,charts,search,grp,hidW,trash].forEach(function(x){bar.appendChild(x);});
+  // Zweitrangiges kommt am Handy hinter "Mehr"; auf dem Desktop sorgt display:contents
+  // dafuer, dass die Leiste unveraendert aussieht (gleiche Reihenfolge, keine Verschachtelung).
+  var sec1=el("div","dms-bar-sec"), sec2=el("div","dms-bar-sec");
+  [nf,zip,ana,charts].forEach(function(x){sec1.appendChild(x);});
+  [grp,hidW,trash].forEach(function(x){sec2.appendChild(x);});
+  var more=el("button","btn mp-mob","Mehr \u25be"); more.type="button";
+  more.onclick=function(){
+    var opened=!sec1.classList.contains("open");
+    [sec1,sec2].forEach(function(x){x.classList.toggle("open",opened);});
+    more.textContent=opened?"Weniger \u25b4":"Mehr \u25be";
+  };
+
+  if(isTouch()){ bar.appendChild(cam); bar.appendChild(camIn); }
+  [up,fileIn,sec1,search,sec2,treeBtn,more].forEach(function(x){bar.appendChild(x);});
   main.appendChild(bar);
   var m=el("div","dms-msg",""); m.id="dms-msg"; m.setAttribute("role","status"); main.appendChild(m);
   selected=new Set();
@@ -262,7 +349,13 @@ async function loadCounts(){
     ((r&&r.data)||[]).forEach(function(row){ if(row.folder_id)docCounts[row.folder_id]=(docCounts[row.folder_id]||0)+1; else unfiledCount++; });
   }catch(e){}
 }
+// Nach der Ordnerwahl die Schublade zumachen – sonst steht der Baum vor der Trefferliste
+function closeTreeDrawer(){
+  var w=document.querySelector(".dms-wrap"); if(w)w.classList.remove("tree-open");
+  var b=document.getElementById("dms-treebtn"); if(b)b.classList.remove("btn-primary");
+}
 function selectFolder(id){
+  closeTreeDrawer();
   S.folder=id||"";
   if(S.trash){ S.trash=false; var tb=document.getElementById("dms-trashbtn"); if(tb){tb.classList.remove("btn-primary"); tb.textContent="Papierkorb";} }
   folderPath(S.folder).forEach(function(f){ expanded.add(f.id); }); // Pfad aufklappen
@@ -481,18 +574,25 @@ function docRow(d){
   } else {
     act.appendChild(btn("Download","btn-sm",function(){download(d);}));
     act.appendChild(btn("Teilen","btn-sm",function(){shareDoc(d);}));
+    // Ab hier Zweitrangiges: am Handy eingeklappt, auf dem Desktop (display:contents)
+    // steht es unveraendert in derselben Reihenfolge in der Zeile.
+    var sec=el("div","doc-act-sec");
+    var moreB=el("button","btn btn-sm mp-mob","Mehr \u25be"); moreB.type="button";
+    moreB.onclick=function(){ var o=!sec.classList.contains("open"); sec.classList.toggle("open",o); moreB.textContent=o?"Weniger \u25b4":"Mehr \u25be"; };
+    act.appendChild(moreB);
     var mv=el("select","btn-sm dms-move"); mv.appendChild(new Option("Ordner verschieben...",""));
     mv.appendChild(new Option("Hauptliste (kein Ordner)","__root"));
     folderOptions().forEach(function(o){mv.appendChild(new Option(o.label,o.id));});
     if(d.folder_id)mv.value=d.folder_id;
-    mv.onchange=function(){ if(!mv.value)return; moveFolder(d, mv.value==="__root"?null:mv.value); }; act.appendChild(mv);
-    act.appendChild(btn("Kategorie","btn-sm",function(){setCategory(d);}));
-    act.appendChild(btn("Betrag","btn-sm",function(){setAmount(d);}));
-    act.appendChild(btn("Tags","btn-sm",function(){setTags(d);}));
-    if(!d.is_encrypted)act.appendChild(btn("Auslesen","btn-sm",function(){readReceipt(d);})); // OCR kann Chiffretext nicht lesen
-    act.appendChild(btn(d.is_encrypted?"Entschlüsseln":"Verschlüsseln","btn-sm",function(){toggleEncrypt(d);}));
-    act.appendChild(btn(d.is_hidden?"Einblenden":"Verbergen","btn-sm",function(){toggleHidden(d);}));
-    act.appendChild(btn("Loeschen","btn-sm btn-danger",function(){softDelete(d);}));
+    mv.onchange=function(){ if(!mv.value)return; moveFolder(d, mv.value==="__root"?null:mv.value); }; sec.appendChild(mv);
+    sec.appendChild(btn("Kategorie","btn-sm",function(){setCategory(d);}));
+    sec.appendChild(btn("Betrag","btn-sm",function(){setAmount(d);}));
+    sec.appendChild(btn("Tags","btn-sm",function(){setTags(d);}));
+    if(!d.is_encrypted)sec.appendChild(btn("Auslesen","btn-sm",function(){readReceipt(d);})); // OCR kann Chiffretext nicht lesen
+    sec.appendChild(btn(d.is_encrypted?"Entschlüsseln":"Verschlüsseln","btn-sm",function(){toggleEncrypt(d);}));
+    sec.appendChild(btn(d.is_hidden?"Einblenden":"Verbergen","btn-sm",function(){toggleHidden(d);}));
+    sec.appendChild(btn("Loeschen","btn-sm btn-danger",function(){softDelete(d);}));
+    act.appendChild(sec);
   }
   row.appendChild(act);
   return row;
@@ -517,6 +617,13 @@ function btn(txt,cls,fn){var b=el("button","btn "+cls,txt); b.onclick=fn; return
 async function doUpload(files){
   var tid=await ensureTenant(); if(!tid){msg("Firma nicht ermittelt.",true);return;}
   var u=MP().user, done=0, errs=[], newDocs=[];
+  // Handy-Fotos verkleinern und nach JPEG wandeln, bevor irgendetwas hochgeht
+  var prepared=[];
+  for(var k=0;k<files.length;k++){
+    if(needsPrepare(files[k])) msg("Bereite Foto "+(k+1)+"/"+files.length+" vor \u2026");
+    prepared.push(await prepareForUpload(files[k]));
+  }
+  files=prepared;
   for(var i=0;i<files.length;i++){
     var f=files[i]; msg("Lade hoch ("+(i+1)+"/"+files.length+"): "+f.name+" ...");
     var safe=f.name.replace(/[^A-Za-z0-9._-]+/g,"_"); var path=tid+"/"+uuid()+"_"+safe;
@@ -544,12 +651,12 @@ async function doUpload(files){
 async function download(d){
   if(d.is_encrypted){
     var plain=await getDecrypted(d); if(!plain)return;
-    triggerDownload(plain,displayName(d.name)); msg(""); return;
+    var w0=await saveOrShare(plain,displayName(d.name)); msg(w0==="shared"?"Beleg gesichert.":""); return;
   }
   msg("Lade herunter ...");
   var r=await supa().storage.from("documents").download(d.storage_path);
   if(r.error){msg("Download-Fehler: "+r.error.message,true);return;}
-  triggerDownload(r.data,displayName(d.name)); msg("");
+  var w=await saveOrShare(r.data,displayName(d.name)); msg(w==="shared"?"Beleg gesichert.":"");
 }
 function triggerDownload(blob,name){
   var url=URL.createObjectURL(blob); var a=el("a"); a.href=url; a.download=name||"datei"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){URL.revokeObjectURL(url);},3000);
@@ -572,6 +679,13 @@ async function shareDoc(d){
     blob=r.data;
     if(isPdfName(d.name) && blob.type!=="application/pdf"){ blob=blob.slice(0,blob.size,"application/pdf"); }
   }
+  // Handy: echtes Teilen-Menue mit der Datei im Anhang (Mail, WhatsApp, Dateien, AirDrop).
+  // Das loest genau das, woran der Desktop-Weg scheitert: Anhaengen per Hand.
+  var sf=blobToFile(blob,name);
+  if(canShareFiles(sf)){
+    try{ await navigator.share({files:[sf],title:"Beleg: "+name,text:name}); msg("Beleg geteilt."); return; }
+    catch(e){ if(e&&e.name==="AbortError"){ msg(""); return; } }   // abgebrochen: nicht heimlich herunterladen
+  }
   triggerDownload(blob,name);
   var url=outlookComposeUrl("Beleg: "+name,"Im Anhang: "+name+" (bitte soeben heruntergeladene Datei im Outlook-Entwurf anhängen).");
   var w=window.open(url,"_blank","noopener");
@@ -586,7 +700,8 @@ async function downloadZip(){
   var zip=new window.JSZip();
   for(var i=0;i<currentRows.length;i++){ var d=currentRows[i]; var r=await supa().storage.from("documents").download(d.storage_path); if(!r.error)zip.file(displayName(d.name),r.data); }
   var blob=await zip.generateAsync({type:"blob"});
-  triggerDownload(blob,(S.folder?folderName(S.folder):"Dokumente")+".zip"); msg("ZIP heruntergeladen.");
+  var zw=await saveOrShare(blob,(S.folder?folderName(S.folder):"Dokumente")+".zip");
+  msg(zw==="shared"?"ZIP geteilt.":(zw==="cancelled"?"":"ZIP heruntergeladen."));
 }
 async function moveFolder(d,fid){ var r=await supa().from("documents").update({folder_id:fid}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs(); }
 async function setCategory(d){ var c=prompt("Kategorie fuer \""+displayName(d.name)+"\":", d.category?typeLabel(d.category):""); if(c===null)return; var r=await supa().from("documents").update({category:canonicalType(c)||null}).eq("id",d.id); if(r.error)msg("Fehler: "+r.error.message,true); else loadDocs(); }
@@ -631,8 +746,13 @@ async function analyze(){
   var wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "Dokumente");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sum), "Zusammenfassung");
-  XLSX.writeFile(wb, "Beleg-Analyse.xlsx");
-  msg(rows.length+" Belege analysiert · Summe "+round2(total).toFixed(2)+" € · Excel heruntergeladen.");
+  // Nicht XLSX.writeFile: das erzeugt intern einen Download-Klick, der auf dem iPhone
+  // ins Leere laeuft. Ueber den Blob geht die Datei ins Teilen-Menue bzw. in "Dateien".
+  var xout=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+  var xblob=new Blob([xout],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  var xw=await saveOrShare(xblob,"Beleg-Analyse.xlsx");
+  if(xw==="cancelled"){ msg(""); return; }
+  msg(rows.length+" Belege analysiert · Summe "+round2(total).toFixed(2)+" € · Excel "+(xw==="shared"?"geteilt.":"heruntergeladen."));
 }
 
 /* ---------- Charts (reines SVG, keine Bibliothek) ---------- */
@@ -744,14 +864,22 @@ async function extractText(blob,name){
     var text="";
     for(var i=1;i<=pdf.numPages;i++){ var pg=await pdf.getPage(i); var tc=await pg.getTextContent(); text+=tc.items.map(function(it){return it.str;}).join(" ")+"\n"; }
     if(text.replace(/\s/g,"").length>20) return text;         // digitales PDF -> Text vorhanden
-    var p1=await pdf.getPage(1); var vp=p1.getViewport({scale:2});
+    // Rendermassstab deckeln: eine grosse Seite mit scale 2 sprengt auf dem iPhone den Speicher
+    var p1=await pdf.getPage(1);
+    var base=p1.getViewport({scale:1});
+    var pscale=Math.max(1, Math.min(2, OCR_MAX_PX/Math.max(base.width,base.height)));
+    var vp=p1.getViewport({scale:pscale});
     var cv=document.createElement("canvas"); cv.width=vp.width; cv.height=vp.height;
     await p1.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
     return await ocrCanvas(cv);
   }
+  // Foto auf OCR-Mass bringen: ein 12-MP-Bild dauert auf dem iPhone ein Vielfaches
+  // und wird nicht besser erkannt – Belegschrift ist bei ~1600px lang genug aufgeloest.
   var img=await blobToImage(blob);
-  var c2=document.createElement("canvas"); c2.width=img.naturalWidth||img.width; c2.height=img.naturalHeight||img.height;
-  c2.getContext("2d").drawImage(img,0,0); return await ocrCanvas(c2);
+  var iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
+  var isc=Math.min(1, OCR_MAX_PX/Math.max(iw||1,ih||1));
+  var c2=document.createElement("canvas"); c2.width=Math.max(1,Math.round(iw*isc)); c2.height=Math.max(1,Math.round(ih*isc));
+  c2.getContext("2d").drawImage(img,0,0,c2.width,c2.height); return await ocrCanvas(c2);
 }
 function classifyDoc(text){
   var t=(text||"").toLowerCase().replace(/\s+/g," ");
@@ -878,6 +1006,7 @@ async function openPreview(d){
 var hoverEl=null, hoverTimer=null, hoverId=null;
 function ensureHover(){ if(!hoverEl){ hoverEl=el("div","dms-hover"); hoverEl.style.display="none"; document.body.appendChild(hoverEl); } return hoverEl; }
 function hoverPreview(d,anchor){
+  if(isTouch())return;                          // Touch loest mouseenter mit aus -> waere ein Geistervorschaubild
   if(!isImgName(d.name)||d.is_encrypted)return; // kein Code-Prompt nur wegen Mouse-Hover
   clearTimeout(hoverTimer);
   hoverTimer=setTimeout(function(){

@@ -1,0 +1,21 @@
+{
+  "name": "Mandrudi Plattform",
+  "short_name": "Mandrudi",
+  "description": "Belege fotografieren, ablegen und auswerten – Dokumente, CRM und Projekte in einer App.",
+  "id": "/",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#12314c",
+  "theme_color": "#12314c",
+  "lang": "de",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Dokumente", "short_name": "Belege", "url": "./?view=dms", "icons": [{ "src": "assets/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
